@@ -1,8 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
   provider = "prisma-client"
   output   = "../src/generated/prisma"
@@ -10,4 +5,196 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+}
+
+enum Role {
+  SUPER_ADMIN
+  OWNER
+  EMPLOYEE
+}
+
+enum OrderSource {
+  MANUAL
+  SHOPIFY
+}
+
+enum OrderStatus {
+  NEW
+  IN_PROGRESS
+  READY
+  COMPLETED
+}
+
+enum ExpenseCategory {
+  FIXED
+  VARIABLE
+}
+
+enum IncomeCategory {
+  SALES
+  OTHER
+}
+
+model Business {
+  id              String   @id @default(uuid())
+  name            String
+  branding        Json?
+  shopifySettings Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  users       User[]
+  products    Product[]
+  collections Collection[]
+  settings    Settings?
+  orders      Order[]
+  expenses    Expense[]
+  incomes     Income[]
+}
+
+model User {
+  id          String    @id @default(uuid())
+  businessId  String?
+  business    Business? @relation(fields: [businessId], references: [id])
+  firebaseUid String    @unique
+  email       String
+  name        String?
+  role        Role      @default(OWNER)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([businessId])
+}
+
+model Product {
+  id                  String   @id @default(uuid())
+  businessId          String
+  business            Business @relation(fields: [businessId], references: [id])
+  type                String
+  name                String
+  material            String
+  weight              Decimal
+  additionalWorkHours Decimal  @default(0)
+  additions           Json?
+  sitePrice           Decimal
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  collections    ProductCollection[]
+  orderLineItems OrderLineItem[]
+
+  @@index([businessId])
+}
+
+model Collection {
+  id          String   @id @default(uuid())
+  businessId  String
+  business    Business @relation(fields: [businessId], references: [id])
+  name        String
+  isPermanent Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  products ProductCollection[]
+
+  @@index([businessId])
+}
+
+model ProductCollection {
+  productId    String
+  collectionId String
+  product      Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+
+  @@id([productId, collectionId])
+}
+
+model Settings {
+  id         String   @id @default(uuid())
+  businessId String   @unique
+  business   Business @relation(fields: [businessId], references: [id])
+  data       Json
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model Order {
+  id               String      @id @default(uuid())
+  businessId       String
+  business         Business    @relation(fields: [businessId], references: [id])
+  number           Int
+  date             DateTime    @default(now())
+  customer         String?
+  amount           Decimal
+  finalAmount      Decimal
+  hasDiscount      Boolean     @default(false)
+  discountReason   String?
+  source           OrderSource @default(MANUAL)
+  receiptSent      Boolean     @default(false)
+  status           OrderStatus @default(NEW)
+  preparationStage String?
+  notes            String?
+  isCompleted      Boolean     @default(false)
+  completedDate    DateTime?
+  isDeleted        Boolean     @default(false)
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  lineItems OrderLineItem[]
+  income    Income?
+
+  @@unique([businessId, number])
+  @@index([businessId])
+}
+
+model OrderLineItem {
+  id        String  @id @default(uuid())
+  orderId   String
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+  name      String
+  type      String
+  material  String
+  unitPrice Decimal
+  quantity  Int     @default(1)
+
+  @@index([orderId])
+}
+
+model Expense {
+  id                String          @id @default(uuid())
+  businessId        String
+  business          Business        @relation(fields: [businessId], references: [id])
+  date              DateTime
+  category          ExpenseCategory
+  subtype           String?
+  description       String
+  amount            Decimal
+  recurring         Boolean         @default(false)
+  recurringMonths   Int?
+  recurrenceGroupId String?
+  receiptFile       String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@index([businessId])
+}
+
+model Income {
+  id            String         @id @default(uuid())
+  businessId    String
+  business      Business       @relation(fields: [businessId], references: [id])
+  date          DateTime
+  category      IncomeCategory
+  description   String
+  amount        Decimal
+  workHours     Decimal?
+  laborHourRate Decimal?
+  orderId       String?        @unique
+  order         Order?         @relation(fields: [orderId], references: [id])
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@index([businessId])
 }
