@@ -6,10 +6,11 @@ import { FirebaseAuthGuard } from './auth/firebase-auth.guard.js';
 import { RolesGuard } from './auth/roles.guard.js';
 import { FirebaseModule } from './firebase/firebase.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
+import { SettingsModule } from './settings/settings.module.js';
 import { TenantInterceptor } from './tenant/tenant.interceptor.js';
 
 @Module({
-  imports: [PrismaModule, FirebaseModule],
+  imports: [PrismaModule, FirebaseModule, SettingsModule],
   controllers: [AppController],
   providers: [
     AppService,
