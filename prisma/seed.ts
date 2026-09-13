@@ -22,18 +22,68 @@ async function main() {
       businessId: business.id,
       data: {
         materials: {
-          silver: { pricePerGram: 2.5, laborHoursPerGram: 0.4 },
-          gold: { pricePerGram: 12, laborHoursPerGram: 0.5 },
+          silver: { pricePerGram: 2.5, laborHoursPerGram: 0.4, profitMultiplier: 1.5 },
+          gold: { pricePerGram: 12, laborHoursPerGram: 0.5, profitMultiplier: 1.8 },
         },
         laborHourRate: 100,
-        packagingCost: 10,
-        feesFactor: 1.17,
-        profitMultiplier: 1.5,
+        pricingAdditions: [
+          {
+            name: 'אריזה',
+            basePrice: 0,
+            items: [
+              { name: 'קופסת מתנה סטנדרטית', price: 8 },
+              { name: 'שקית ממותגת', price: 3 },
+            ],
+          },
+          { name: 'משלוח', basePrice: 0, items: [] },
+        ],
+        feesItems: [{ name: 'עלויות קבועות', percent: 17 }],
         profitFloorPercent: 30,
         preparationStages: ['יציקה', 'שיבוץ אבנים', 'ליטוש', 'ניקוי'],
+        pricingFormula: {
+          stages: [
+            {
+              id: 'costs',
+              name: 'עלויות',
+              terms: [
+                { id: 'materialCost', key: 'materialCost', operator: null },
+                { id: 'packagingCost', key: 'packagingCost', operator: '+' },
+              ],
+            },
+            {
+              id: 'labor',
+              name: 'עבודה',
+              terms: [
+                { id: 'prev1', key: 'previousResult', operator: null },
+                { id: 'laborCost', key: 'laborCost', operator: '+' },
+              ],
+            },
+            {
+              id: 'final',
+              name: 'עמלות',
+              terms: [
+                { id: 'prev2', key: 'previousResult', operator: null },
+                { id: 'fees', key: 'fees', operator: '×' },
+              ],
+            },
+          ],
+        },
       },
     },
   });
+
+  const PERMANENT_COLLECTIONS = [
+    { key: 'general', name: 'כללי' },
+    { key: 'customOrder', name: 'הזמנה אישית' },
+  ];
+  for (const { key, name } of PERMANENT_COLLECTIONS) {
+    const existing = await prisma.collection.findFirst({ where: { businessId: business.id, key } });
+    if (!existing) {
+      await prisma.collection.create({
+        data: { businessId: business.id, name, key, isPermanent: true },
+      });
+    }
+  }
 
   console.log({ business });
 }

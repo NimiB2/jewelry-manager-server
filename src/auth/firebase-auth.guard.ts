@@ -42,9 +42,23 @@ export class FirebaseAuthGuard implements CanActivate {
       throw new UnauthorizedException('Invalid token');
     }
 
-    const user = await this.prisma.client.user.findUnique({
+    let user = await this.prisma.client.user.findUnique({
       where: { firebaseUid: decoded.uid },
     });
+
+    if (!user && decoded.email) {
+      // First sign-in for an employee an owner pre-created by email — link
+      // this Firebase identity to that pending record instead of rejecting.
+      const invited = await this.prisma.client.user.findFirst({
+        where: { firebaseUid: null, email: decoded.email },
+      });
+      if (invited) {
+        user = await this.prisma.client.user.update({
+          where: { id: invited.id },
+          data: { firebaseUid: decoded.uid },
+        });
+      }
+    }
 
     if (!user) {
       throw new UnauthorizedException('User not recognized');

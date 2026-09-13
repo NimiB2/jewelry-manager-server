@@ -56,9 +56,13 @@ model User {
   id          String    @id @default(uuid())
   businessId  String?
   business    Business? @relation(fields: [businessId], references: [id])
-  firebaseUid String    @unique
+  // Nullable: an owner can pre-create an employee record by email before that
+  // person ever signs in. It gets filled in the first time they sign in with
+  // Firebase using a matching email (see FirebaseAuthGuard).
+  firebaseUid String?   @unique
   email       String
   name        String?
+  phone       String?
   role        Role      @default(OWNER)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -92,6 +96,10 @@ model Collection {
   business    Business @relation(fields: [businessId], references: [id])
   name        String
   isPermanent Boolean  @default(false)
+  // Stable identifier for the permanent collections, independent of the
+  // (renamable, localizable) display name — e.g. deletion needs to find
+  // "the general collection" without depending on what it's currently called.
+  key         String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
