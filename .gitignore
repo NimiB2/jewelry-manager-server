@@ -5,3 +5,7 @@ dist
 .env
 
 /src/generated/prisma
+
+# Firebase service account keys (secret, never commit)
+*firebase-adminsdk*.json
+firebase-service-account*.json
