@@ -37,37 +37,13 @@ async function main() {
           },
           { name: 'משלוח', basePrice: 0, items: [] },
         ],
-        feesItems: [{ name: 'עלויות קבועות', percent: 17 }],
+        feesItems: [
+          { name: 'עמלת סליקה', percent: 3, isPermanent: true },
+          { name: 'מע"מ', percent: 18, isPermanent: true },
+          { name: 'עמלת עלויות קבועות', percent: 17, isPermanent: true },
+        ],
         profitFloorPercent: 30,
         preparationStages: ['יציקה', 'שיבוץ אבנים', 'ליטוש', 'ניקוי'],
-        pricingFormula: {
-          stages: [
-            {
-              id: 'costs',
-              name: 'עלויות',
-              terms: [
-                { id: 'materialCost', key: 'materialCost', operator: null },
-                { id: 'packagingCost', key: 'packagingCost', operator: '+' },
-              ],
-            },
-            {
-              id: 'labor',
-              name: 'עבודה',
-              terms: [
-                { id: 'prev1', key: 'previousResult', operator: null },
-                { id: 'laborCost', key: 'laborCost', operator: '+' },
-              ],
-            },
-            {
-              id: 'final',
-              name: 'עמלות',
-              terms: [
-                { id: 'prev2', key: 'previousResult', operator: null },
-                { id: 'fees', key: 'fees', operator: '×' },
-              ],
-            },
-          ],
-        },
       },
     },
   });

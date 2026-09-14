@@ -28,9 +28,12 @@ export class UpdateSettingsDto {
   pricingAdditions?: { name: string; basePrice: number; items: { name: string; price: number }[] }[];
 
   // Combined fee factor is derived from these (1 + sum(percent)/100), not a single flat number.
+  // isPermanent (card fee, VAT, fixed costs) hides the delete button client-side — same
+  // pattern as Collection.isPermanent — so the fixed-expense-rate inputs the pricing
+  // formula relies on can't be removed by accident; freely-added fees stay deletable.
   @IsOptional()
   @IsArray()
-  feesItems?: { name: string; percent: number }[];
+  feesItems?: { name: string; percent: number; isPermanent?: boolean }[];
 
   @IsOptional()
   @IsNumber()
@@ -40,22 +43,4 @@ export class UpdateSettingsDto {
   @IsArray()
   @IsString({ each: true })
   preparationStages?: string[];
-
-  // A user-built sequence of stages (each continuing from the previous
-  // stage's result) that will drive the actual product-pricing calculator
-  // once it's built. Standard × / ÷ before + / - precedence applies within
-  // a stage — deliberately no manual parentheses.
-  @IsOptional()
-  @IsObject()
-  pricingFormula?: {
-    stages: {
-      id: string;
-      name: string;
-      terms: {
-        id: string;
-        key: 'materialCost' | 'packagingCost' | 'laborCost' | 'fees' | 'previousResult';
-        operator: '+' | '-' | '×' | '÷' | null;
-      }[];
-    }[];
-  };
 }
