@@ -154,6 +154,10 @@ public class OrdersService(AppDbContext db, CurrentUserAccessor tenant)
     {
         var order = await FindOrThrowAsync(id, asNoTracking: false);
 
+        // The books need a receipt for every finished sale.
+        if (status == OrderStatus.Completed && !order.ReceiptSent)
+            throw new BadRequestException("לא ניתן להשלים הזמנה לפני שנשלחה קבלה");
+
         if (order.Status != status)
         {
             order.Status = status;
@@ -217,10 +221,12 @@ public class OrdersService(AppDbContext db, CurrentUserAccessor tenant)
         return await GetOrderAsync(id);
     }
 
-    // Allowed even on a completed order: the receipt is often sent after the work is done.
+    // A completed order always has its receipt, so the mark can only be removed after reopening it.
     public async Task<OrderResponse> SetReceiptSentAsync(Guid id, bool receiptSent)
     {
         var order = await FindOrThrowAsync(id, asNoTracking: false);
+        if (!receiptSent && order.IsCompleted)
+            throw new BadRequestException("לא ניתן לבטל את סימון הקבלה בהזמנה שהושלמה");
         order.ReceiptSent = receiptSent;
         order.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync();

@@ -252,6 +252,7 @@ public class OrdersTests(PostgresFixture pg)
         var product = await NewProductAsync("נעילה");
         var order = await WithOrders(Business, s => s.CreateOrderAsync(Order(product.Id)));
 
+        await WithOrders(Business, s => s.SetReceiptSentAsync(order.Id, true));
         var done = await WithOrders(Business, s => s.UpdateStatusAsync(order.Id, OrderStatus.Completed));
         Assert.True(done.IsCompleted);
         Assert.NotNull(done.CompletedDate);
@@ -267,15 +268,22 @@ public class OrdersTests(PostgresFixture pg)
     }
 
     [Fact]
-    public async Task Receipt_CanBeMarkedSent_EvenAfterCompletion()
+    public async Task Receipt_IsRequiredToComplete_AndCannotBeRemovedFromACompletedOrder()
     {
         await SetupAsync();
         var order = await NewOrderAsync("קבלה");
         Assert.False(order.ReceiptSent);
 
-        await WithOrders(Business, s => s.UpdateStatusAsync(order.Id, OrderStatus.Completed));
-        var sent = await WithOrders(Business, s => s.SetReceiptSentAsync(order.Id, true));
-        Assert.True(sent.ReceiptSent);
+        // No receipt, no completion.
+        await Assert.ThrowsAsync<BadRequestException>(() => WithOrders(Business, s => s.UpdateStatusAsync(order.Id, OrderStatus.Completed)));
+        Assert.False((await WithOrders(Business, s => s.GetOrderAsync(order.Id))).IsCompleted);
+
+        Assert.True((await WithOrders(Business, s => s.SetReceiptSentAsync(order.Id, true))).ReceiptSent);
+        Assert.True((await WithOrders(Business, s => s.UpdateStatusAsync(order.Id, OrderStatus.Completed))).IsCompleted);
+
+        // Once completed the mark stays; it can only be changed after reopening the order.
+        await Assert.ThrowsAsync<BadRequestException>(() => WithOrders(Business, s => s.SetReceiptSentAsync(order.Id, false)));
+        await WithOrders(Business, s => s.UpdateStatusAsync(order.Id, OrderStatus.Ready));
         Assert.False((await WithOrders(Business, s => s.SetReceiptSentAsync(order.Id, false))).ReceiptSent);
     }
 
@@ -302,6 +310,7 @@ public class OrdersTests(PostgresFixture pg)
         var january = await WithOrders(Business, s => s.CreateOrderAsync(Order(product.Id, customer: $"ינואר {tag}", date: new(2025, 1, 15))));
         var march = await WithOrders(Business, s => s.CreateOrderAsync(Order(product.Id, qty: 2, customer: $"מרץ {tag}", date: new(2025, 3, 2))));
         var done = await WithOrders(Business, s => s.CreateOrderAsync(Order(product.Id, customer: $"הושלם {tag}", date: new(2025, 3, 20))));
+        await WithOrders(Business, s => s.SetReceiptSentAsync(done.Id, true));
         await WithOrders(Business, s => s.UpdateStatusAsync(done.Id, OrderStatus.Completed));
 
         // Search narrows to this test's orders; "all" includes the completed one.
