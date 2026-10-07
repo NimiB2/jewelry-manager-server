@@ -199,6 +199,24 @@ public class OrdersService(AppDbContext db, CurrentUserAccessor tenant)
         return await GetOrderAsync(id);
     }
 
+    /// <summary>Jumps an in-progress order straight to any stage defined in settings (forward or back).</summary>
+    public async Task<OrderResponse> SetStageAsync(Guid id, string stage)
+    {
+        var order = await FindOrThrowAsync(id, asNoTracking: false);
+        if (order.Status != OrderStatus.InProgress)
+            throw new BadRequestException("Only an order in progress has a preparation stage");
+
+        if (!(await GetStageNamesAsync()).Contains(stage))
+            throw new BadRequestException("Unknown preparation stage");
+
+        order.PreparationStage = stage;
+        order.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+
+        return await GetOrderAsync(id);
+    }
+
     // Allowed even on a completed order: the receipt is often sent after the work is done.
     public async Task<OrderResponse> SetReceiptSentAsync(Guid id, bool receiptSent)
     {

@@ -34,6 +34,9 @@ public class OrdersController(OrdersService service) : ControllerBase
     [HttpPost("{id:guid}/advance-stage")]
     public Task<OrderResponse> AdvanceStage(Guid id) => service.AdvanceStageAsync(id);
 
+    [HttpPatch("{id:guid}/stage")]
+    public Task<OrderResponse> SetStage(Guid id, UpdateOrderStageDto dto) => service.SetStageAsync(id, dto.Stage);
+
     [HttpPatch("{id:guid}/receipt-sent")]
     public Task<OrderResponse> SetReceiptSent(Guid id, UpdateReceiptSentDto dto) =>
         service.SetReceiptSentAsync(id, dto.ReceiptSent);

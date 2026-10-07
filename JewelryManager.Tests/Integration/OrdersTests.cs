@@ -232,6 +232,20 @@ public class OrdersTests(PostgresFixture pg)
     }
 
     [Fact]
+    public async Task Stage_CanBeSetDirectly_ForwardAndBack_ButOnlyToDefinedStages_AndOnlyInProgress()
+    {
+        await SetupAsync();
+        var order = await NewOrderAsync("שלב ישיר");
+
+        await Assert.ThrowsAsync<BadRequestException>(() => WithOrders(Business, s => s.SetStageAsync(order.Id, "ליטוש")));
+
+        await WithOrders(Business, s => s.UpdateStatusAsync(order.Id, OrderStatus.InProgress));
+        Assert.Equal("ליטוש", (await WithOrders(Business, s => s.SetStageAsync(order.Id, "ליטוש"))).PreparationStage);
+        Assert.Equal("יציקה", (await WithOrders(Business, s => s.SetStageAsync(order.Id, "יציקה"))).PreparationStage);
+        await Assert.ThrowsAsync<BadRequestException>(() => WithOrders(Business, s => s.SetStageAsync(order.Id, "שלב שלא קיים")));
+    }
+
+    [Fact]
     public async Task Status_CompleteLocksTheOrder_AndReopeningUnlocksIt()
     {
         await SetupAsync();
