@@ -12,5 +12,8 @@ public class FeeItem
     // Permanent fees can't be deleted from the UI: the pricing formula relies on them.
     public bool IsPermanent { get; set; }
 
+    // Set for the fees the pricing formula reads (see FeeKeys); null for any extra fee.
+    public string? Key { get; set; }
+
     public int SortOrder { get; set; }
 }

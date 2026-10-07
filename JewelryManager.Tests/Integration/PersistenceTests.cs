@@ -71,7 +71,14 @@ public class PersistenceTests(PostgresFixture pg)
         var dto = NoChange with
         {
             Materials = new() { ["זהב"] = new(12, 0.5m, 1.8m), ["כסף"] = new(8, 1, 1.5m), ["אבץ"] = new(1, 1, 1.2m) },
-            FeesItems = [new FeeItemDto("מע\"מ", 18, true), new FeeItemDto("אחר", 2, null)],
+            FeesItems =
+            [
+                new FeeItemDto("מע\"מ", 18, true, FeeKeys.Vat),
+                new FeeItemDto("אחר", 2, null),
+                new FeeItemDto("סליקה", 3, true, FeeKeys.CardFee),
+                new FeeItemDto("קבועות", 17, true, FeeKeys.FixedExpenses),
+            ],
+            ProductAdditionTypes = [new("אבן", false), new("אחר", true)],
             PricingAdditions =
             [
                 new PricingAdditionDto("אריזה", 1, [new("קופסה", 8), new("שקית", 3)]),
@@ -85,9 +92,12 @@ public class PersistenceTests(PostgresFixture pg)
         var read = (await WithSettings(pg.BusinessA, s => s.GetSettingsAsync())).Data;
         Assert.Equal(["זהב", "כסף", "אבץ"], read.Materials.Keys);
         Assert.Equal(1.8m, read.Materials["זהב"].ProfitMultiplier);
-        Assert.Equal(["מע\"מ", "אחר"], read.FeesItems.Select(f => f.Name));
+        Assert.Equal(["מע\"מ", "אחר", "סליקה", "קבועות"], read.FeesItems.Select(f => f.Name));
         Assert.True(read.FeesItems[0].IsPermanent);
+        Assert.Equal(FeeKeys.Vat, read.FeesItems[0].Key);
         Assert.False(read.FeesItems[1].IsPermanent);
+        Assert.Null(read.FeesItems[1].Key);
+        Assert.Equal([("אבן", false), ("אחר", true)], read.ProductAdditionTypes.Select(t => (t.Name, t.AllowsCustomName)));
         Assert.Equal(["אריזה", "משלוח"], read.PricingAdditions.Select(c => c.Name));
         Assert.Equal(["קופסה", "שקית"], read.PricingAdditions[0].Items.Select(i => i.Name));
         Assert.Empty(read.PricingAdditions[1].Items);
@@ -151,6 +161,23 @@ public class PersistenceTests(PostgresFixture pg)
             s.UpdateSettingsAsync(NoChange with { PreparationStages = ["same", " same "] })));
         await Assert.ThrowsAsync<BadRequestException>(() => WithSettings(pg.BusinessA, s =>
             s.UpdateSettingsAsync(NoChange with { FeesItems = [new("f", 1, null), new("f", 2, null)] })));
+    }
+
+    [Fact]
+    public async Task Fees_CannotLoseTheKeysThePricingFormulaNeeds()
+    {
+        await SeedSettingsAsync(pg.BusinessA);
+
+        // Missing the VAT fee entirely.
+        await Assert.ThrowsAsync<BadRequestException>(() => WithSettings(pg.BusinessA, s =>
+            s.UpdateSettingsAsync(NoChange with
+            {
+                FeesItems = [new("c", 3, true, FeeKeys.CardFee), new("f", 17, true, FeeKeys.FixedExpenses)],
+            })));
+
+        // Unknown key.
+        await Assert.ThrowsAsync<BadRequestException>(() => WithSettings(pg.BusinessA, s =>
+            s.UpdateSettingsAsync(NoChange with { FeesItems = [new("x", 1, null, "bogus")] })));
     }
 
     [Fact]
@@ -258,6 +285,9 @@ public class PersistenceTests(PostgresFixture pg)
         var seeded = Guid.Parse("00000000-0000-0000-0000-000000000001");
         var read = (await WithSettings(seeded, s => s.GetSettingsAsync())).Data;
         Assert.Equal(5, read.Materials.Count);
+        Assert.Equal(["אבן", "שיבוץ", "ציפוי", "תוספת עגילים", "תוספת שרשרת", "אחר"], read.ProductAdditionTypes.Select(t => t.Name));
+        Assert.True(read.ProductAdditionTypes.Single(t => t.Name == "אחר").AllowsCustomName);
+        Assert.Equal(FeeKeys.Required.Order(), read.FeesItems.Select(f => f.Key!).Order());
         Assert.Equal(330, read.Materials["14K זהב"].PricePerGram);
         Assert.Equal(8, read.PricingAdditions.Single(c => c.Name == "אריזה").Items.Count);
 

@@ -4,6 +4,8 @@ using JewelryManager.Api.Auth;
 using JewelryManager.Api.Common.Filters;
 using JewelryManager.Api.Data;
 using JewelryManager.Api.Features.Collections;
+using JewelryManager.Api.Features.Pricing;
+using JewelryManager.Api.Features.Products;
 using JewelryManager.Api.Features.Settings;
 using JewelryManager.Api.Features.Users;
 using Microsoft.EntityFrameworkCore;
@@ -65,6 +67,8 @@ builder.Services.AddScoped<CurrentUserAccessor>();
 // ── Features ──────────────────────────────────────────────────────────────────
 builder.Services.AddScoped<CollectionsService>();
 builder.Services.AddScoped<SettingsService>();
+builder.Services.AddScoped<PricingService>();
+builder.Services.AddScoped<ProductsService>();
 builder.Services.AddScoped<UsersService>();
 builder.Services.AddScoped<DbSeeder>();
 

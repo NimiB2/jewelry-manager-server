@@ -34,11 +34,22 @@ public class DbSeeder(AppDbContext db, IConfiguration config)
         ("שקיות ניילון/נייר", 1.25m),
     ];
 
-    private static readonly (string Name, decimal Percent)[] Fees =
+    private static readonly (string Name, decimal Percent, string Key)[] Fees =
     [
-        ("עמלת סליקה", 3),
-        ("מע\"מ", 18),
-        ("עמלת עלויות קבועות", 17),
+        ("עמלת סליקה", 3, FeeKeys.CardFee),
+        ("מע\"מ", 18, FeeKeys.Vat),
+        ("עמלת עלויות קבועות", 17, FeeKeys.FixedExpenses),
+    ];
+
+    // Extras the owner can add to a product; "other" lets her type any name.
+    private static readonly (string Name, bool AllowsCustomName)[] AdditionTypes =
+    [
+        ("אבן", false),
+        ("שיבוץ", false),
+        ("ציפוי", false),
+        ("תוספת עגילים", false),
+        ("תוספת שרשרת", false),
+        ("אחר", true),
     ];
 
     private static readonly string[] Stages = ["יציקה", "שיבוץ אבנים", "ליטוש", "ניקוי"];
@@ -69,7 +80,13 @@ public class DbSeeder(AppDbContext db, IConfiguration config)
             db.FeeItems.AddRange(Fees.Select((f, i) => new FeeItem
             {
                 Id = Guid.NewGuid(), BusinessId = BusinessId, Name = f.Name, Percent = f.Percent,
-                IsPermanent = true, SortOrder = i,
+                IsPermanent = true, Key = f.Key, SortOrder = i,
+            }));
+
+            db.ProductAdditionTypes.AddRange(AdditionTypes.Select((t, i) => new ProductAdditionType
+            {
+                Id = Guid.NewGuid(), BusinessId = BusinessId, Name = t.Name,
+                AllowsCustomName = t.AllowsCustomName, SortOrder = i,
             }));
 
             db.PricingAdditionCategories.AddRange(

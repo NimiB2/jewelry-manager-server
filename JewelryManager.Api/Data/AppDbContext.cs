@@ -19,6 +19,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<PricingAdditionCategory> PricingAdditionCategories => Set<PricingAdditionCategory>();
     public DbSet<PricingAdditionItem> PricingAdditionItems => Set<PricingAdditionItem>();
     public DbSet<PreparationStage> PreparationStages => Set<PreparationStage>();
+    public DbSet<ProductAdditionType> ProductAdditionTypes => Set<ProductAdditionType>();
+    public DbSet<Product> Products => Set<Product>();
+    public DbSet<ProductCollection> ProductCollections => Set<ProductCollection>();
+    public DbSet<ProductAddition> ProductAdditions => Set<ProductAddition>();
 
     // More DbSets will be added here as features are built.
 
@@ -65,6 +69,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         b.Entity<FeeItem>(e =>
         {
             e.HasIndex(f => new { f.BusinessId, f.Name }).IsUnique();
+
+            // At most one fee per formula role in a business; extra fees have no key.
+            e.HasIndex(f => new { f.BusinessId, f.Key }).IsUnique().HasFilter("\"Key\" IS NOT NULL");
             e.Property(f => f.Percent).HasPrecision(18, 4);
             e.HasOne<Business>().WithMany().HasForeignKey(f => f.BusinessId).OnDelete(DeleteBehavior.Cascade);
         });
@@ -83,6 +90,41 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(i => i.Price).HasPrecision(18, 4);
             e.HasOne(i => i.Category).WithMany(c => c.Items).HasForeignKey(i => i.CategoryId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne<Business>().WithMany().HasForeignKey(i => i.BusinessId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<ProductAdditionType>(e =>
+        {
+            e.HasIndex(t => new { t.BusinessId, t.Name }).IsUnique();
+            e.HasOne<Business>().WithMany().HasForeignKey(t => t.BusinessId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ── Products ──────────────────────────────────────────────────────────
+        b.Entity<Product>(e =>
+        {
+            e.HasIndex(p => p.BusinessId);
+            e.Property(p => p.Weight).HasPrecision(18, 4);
+            e.Property(p => p.AdditionalWorkHours).HasPrecision(18, 4);
+            e.Property(p => p.SitePrice).HasPrecision(18, 4);
+            e.HasOne<Business>().WithMany().HasForeignKey(p => p.BusinessId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<ProductCollection>(e =>
+        {
+            e.HasKey(pc => new { pc.ProductId, pc.CollectionId });
+            e.HasIndex(pc => pc.BusinessId);
+            e.HasIndex(pc => pc.CollectionId);
+            e.HasOne(pc => pc.Product).WithMany(p => p.Collections).HasForeignKey(pc => pc.ProductId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(pc => pc.Collection).WithMany(c => c.Products).HasForeignKey(pc => pc.CollectionId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Business>().WithMany().HasForeignKey(pc => pc.BusinessId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<ProductAddition>(e =>
+        {
+            e.HasIndex(a => a.ProductId);
+            e.HasIndex(a => a.BusinessId);
+            e.Property(a => a.Price).HasPrecision(18, 4);
+            e.HasOne(a => a.Product).WithMany(p => p.Additions).HasForeignKey(a => a.ProductId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Business>().WithMany().HasForeignKey(a => a.BusinessId).OnDelete(DeleteBehavior.Cascade);
         });
 
         b.Entity<PreparationStage>(e =>

@@ -17,8 +17,16 @@ public record PricingAdditionDto(
     [Required] List<PricingItemDto> Items);
 
 // IsPermanent hides the delete button client-side so the fee rates the pricing
-// formula relies on can't be removed by accident.
-public record FeeItemDto([Required] string Name, [Range(0, 1_000_000)] decimal Percent, bool? IsPermanent);
+// formula relies on can't be removed by accident. Key marks the fees the formula reads
+// (see FeeKeys); the client must send it back unchanged.
+public record FeeItemDto(
+    [Required] string Name,
+    [Range(0, 1_000_000)] decimal Percent,
+    bool? IsPermanent,
+    string? Key = null);
+
+// An option the owner can add to a product (stone, setting, plating, "other"...).
+public record ProductAdditionTypeDto([Required] string Name, bool AllowsCustomName);
 
 /// <summary>
 /// Every field is optional: PATCH /settings replaces only the sections that were sent
@@ -30,5 +38,6 @@ public record UpdateSettingsDto(
     List<PricingAdditionDto>? PricingAdditions,
     List<FeeItemDto>? FeesItems,
     [Range(0, 1_000_000)] decimal? ProfitFloorPercent,
-    List<string>? PreparationStages
+    List<string>? PreparationStages,
+    List<ProductAdditionTypeDto>? ProductAdditionTypes = null
 );

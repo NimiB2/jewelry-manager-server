@@ -51,11 +51,42 @@ public class CollectionsService(AppDbContext db, CurrentUserAccessor tenant)
         if (collection.IsPermanent)
             throw new BadRequestException("Cannot delete a permanent collection");
 
-        // TODO(Products): move this collection's products to the "general" collection
-        // before deleting, once Product / ProductCollection exist.
+        await using var tx = await db.Database.BeginTransactionAsync();
+
+        await MoveProductsToGeneralAsync(collection);
+
+        // Cascades to the collection's own ProductCollection rows.
         db.Collections.Remove(collection);
         await db.SaveChangesAsync();
+        await tx.CommitAsync();
         return collection;
+    }
+
+    // A product must never be left without a collection: the ones that only lived here go to "General".
+    private async Task MoveProductsToGeneralAsync(Collection from)
+    {
+        var businessId = tenant.GetBusinessId();
+
+        var generalId = await db.Collections
+            .Where(c => c.BusinessId == businessId && c.Key == "general")
+            .Select(c => (Guid?)c.Id)
+            .FirstOrDefaultAsync();
+        if (generalId is null) return;
+
+        var alreadyInGeneral = db.ProductCollections
+            .Where(pc => pc.CollectionId == generalId)
+            .Select(pc => pc.ProductId);
+
+        var toMove = await db.ProductCollections
+            .Where(pc => pc.CollectionId == from.Id && !alreadyInGeneral.Contains(pc.ProductId))
+            .Select(pc => pc.ProductId)
+            .ToListAsync();
+
+        db.ProductCollections.AddRange(toMove.Select(productId => new ProductCollection
+        {
+            BusinessId = businessId, ProductId = productId, CollectionId = generalId.Value,
+        }));
+        await db.SaveChangesAsync();
     }
 
     private async Task<Collection> FindOrThrowAsync(Guid id) =>

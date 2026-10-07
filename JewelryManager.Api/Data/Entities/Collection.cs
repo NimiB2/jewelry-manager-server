@@ -16,7 +16,5 @@ public class Collection
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 
-    // Join table navigation — EF Core resolves the many-to-many through ProductCollection.
-    // Added later when the Products feature is built.
-    // public ICollection<ProductCollection> Products { get; set; } = [];
+    public ICollection<ProductCollection> Products { get; set; } = [];
 }

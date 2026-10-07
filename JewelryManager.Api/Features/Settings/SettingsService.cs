@@ -39,6 +39,12 @@ public class SettingsService(AppDbContext db, CurrentUserAccessor tenant)
             .Select(s => s.Name)
             .ToListAsync();
 
+        var additionTypes = await db.ProductAdditionTypes.AsNoTracking()
+            .Where(t => t.BusinessId == businessId)
+            .OrderBy(t => t.SortOrder)
+            .Select(t => new ProductAdditionTypeDto(t.Name, t.AllowsCustomName))
+            .ToListAsync();
+
         var data = new SettingsDataResponse(
             Materials: materials.ToDictionary(
                 m => m.Name,
@@ -48,9 +54,10 @@ public class SettingsService(AppDbContext db, CurrentUserAccessor tenant)
                 c.Name,
                 c.BasePrice,
                 c.Items.OrderBy(i => i.SortOrder).Select(i => new PricingItemDto(i.Name, i.Price)).ToList())).ToList(),
-            FeesItems: fees.Select(f => new FeeItemDto(f.Name, f.Percent, f.IsPermanent)).ToList(),
+            FeesItems: fees.Select(f => new FeeItemDto(f.Name, f.Percent, f.IsPermanent, f.Key)).ToList(),
             ProfitFloorPercent: settings.ProfitFloorPercent,
-            PreparationStages: stages);
+            PreparationStages: stages,
+            ProductAdditionTypes: additionTypes);
 
         return new SettingsResponse(settings.Id, settings.BusinessId, data, settings.UpdatedAt);
     }
@@ -92,7 +99,18 @@ public class SettingsService(AppDbContext db, CurrentUserAccessor tenant)
             db.FeeItems.AddRange(dto.FeesItems.Select((f, i) => new FeeItem
             {
                 Id = Guid.NewGuid(), BusinessId = businessId, Name = f.Name.Trim(),
-                Percent = f.Percent, IsPermanent = f.IsPermanent ?? false, SortOrder = i,
+                Percent = f.Percent, IsPermanent = f.IsPermanent ?? false,
+                Key = string.IsNullOrWhiteSpace(f.Key) ? null : f.Key, SortOrder = i,
+            }));
+        }
+
+        if (dto.ProductAdditionTypes is not null)
+        {
+            await db.ProductAdditionTypes.Where(t => t.BusinessId == businessId).ExecuteDeleteAsync();
+            db.ProductAdditionTypes.AddRange(dto.ProductAdditionTypes.Select((t, i) => new ProductAdditionType
+            {
+                Id = Guid.NewGuid(), BusinessId = businessId, Name = t.Name.Trim(),
+                AllowsCustomName = t.AllowsCustomName, SortOrder = i,
             }));
         }
 
@@ -132,10 +150,27 @@ public class SettingsService(AppDbContext db, CurrentUserAccessor tenant)
         if (HasDuplicates(dto.Materials?.Keys)) throw new BadRequestException("Material names must be unique");
         if (HasDuplicates(dto.FeesItems?.Select(f => f.Name))) throw new BadRequestException("Fee names must be unique");
         if (HasDuplicates(dto.PreparationStages)) throw new BadRequestException("Preparation stage names must be unique");
+        if (HasDuplicates(dto.ProductAdditionTypes?.Select(t => t.Name)))
+            throw new BadRequestException("Addition names must be unique");
+        RejectInvalidFeeKeys(dto.FeesItems);
         if (HasDuplicates(dto.PricingAdditions?.Select(c => c.Name)))
             throw new BadRequestException("Category names must be unique");
         if (dto.PricingAdditions?.Any(c => HasDuplicates(c.Items.Select(i => i.Name))) == true)
             throw new BadRequestException("Item names must be unique within a category");
+    }
+
+    // The pricing formula reads these three fees by key, so they can never be removed or duplicated.
+    private static void RejectInvalidFeeKeys(List<FeeItemDto>? fees)
+    {
+        if (fees is null) return;
+
+        var keys = fees.Where(f => !string.IsNullOrWhiteSpace(f.Key)).Select(f => f.Key!).ToList();
+        if (keys.Except(FeeKeys.Required).Any())
+            throw new BadRequestException("Unknown fee key");
+        if (keys.Count != keys.Distinct().Count())
+            throw new BadRequestException("A fee key can only be used once");
+        if (FeeKeys.Required.Except(keys).Any())
+            throw new BadRequestException("The card fee, VAT and fixed-expenses fees cannot be removed");
     }
 
     private static bool HasDuplicates(IEnumerable<string>? names) =>
