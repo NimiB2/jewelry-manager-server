@@ -1,3 +1,8 @@
+# Local development infrastructure only.
+# `name` and the explicit volume names pin the data to one place, so it survives
+# `docker compose down`, restarts and reboots (only `down -v` deletes it).
+name: jewelry-manager
+
 services:
   db:
     image: postgres:16
@@ -5,11 +10,37 @@ services:
     environment:
       POSTGRES_USER: jewelry
       POSTGRES_PASSWORD: jewelry_dev_password
-      POSTGRES_DB: jewelry_manager
+      POSTGRES_DB: jewelry_manager_dotnet
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jewelry -d jewelry_manager_dotnet"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Web UI for browsing the database: http://localhost:5050 (no login in dev).
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@example.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+    ports:
+      - "127.0.0.1:5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+      - ./pgadmin-servers.json:/pgadmin4/servers.json:ro
 
 volumes:
   db_data:
+    name: jewelry_manager_db_data
+  pgadmin_data:
+    name: jewelry_manager_pgadmin_data
