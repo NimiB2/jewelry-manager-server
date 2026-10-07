@@ -15,9 +15,28 @@ public class PostgresFixture : IAsyncLifetime
 {
     public const string TestDatabase = "jewelry_manager_test";
 
+    // The password is never hardcoded: it comes from TEST_DB_CONNECTION, or from the
+    // git-ignored .env next to docker-compose.yml (the same file the container uses).
     private static string ConnectionString =>
         Environment.GetEnvironmentVariable("TEST_DB_CONNECTION")
-        ?? $"Host=localhost;Port=5432;Database={TestDatabase};Username=jewelry;Password=jewelry_dev_password";
+        ?? $"Host=localhost;Port=5432;Database={TestDatabase};Username=jewelry;Password={ReadDbPassword()}";
+
+    private static string ReadDbPassword()
+    {
+        foreach (var start in new[] { AppContext.BaseDirectory, Directory.GetCurrentDirectory() })
+        {
+            for (var dir = new DirectoryInfo(start); dir is not null; dir = dir.Parent)
+            {
+                var envFile = Path.Combine(dir.FullName, ".env");
+                if (!File.Exists(Path.Combine(dir.FullName, "docker-compose.yml")) || !File.Exists(envFile)) continue;
+
+                var line = File.ReadLines(envFile).FirstOrDefault(l => l.StartsWith("DB_PASSWORD="));
+                if (line is not null) return line["DB_PASSWORD=".Length..].Trim();
+            }
+        }
+
+        throw new InvalidOperationException("Set TEST_DB_CONNECTION or create server-dotnet/.env with DB_PASSWORD.");
+    }
 
     public Guid BusinessA { get; } = Guid.NewGuid();
     public Guid BusinessB { get; } = Guid.NewGuid();

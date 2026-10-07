@@ -24,3 +24,5 @@ firebase-adminsdk*.json
 *.pfx
 *.key
 secrets.json
+
+!.env.example
