@@ -14,6 +14,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<User> Users => Set<User>();
     public DbSet<Collection> Collections => Set<Collection>();
     public DbSet<Settings> Settings => Set<Settings>();
+    public DbSet<Material> Materials => Set<Material>();
+    public DbSet<FeeItem> FeeItems => Set<FeeItem>();
+    public DbSet<PricingAdditionCategory> PricingAdditionCategories => Set<PricingAdditionCategory>();
+    public DbSet<PricingAdditionItem> PricingAdditionItems => Set<PricingAdditionItem>();
+    public DbSet<PreparationStage> PreparationStages => Set<PreparationStage>();
 
     // More DbSets will be added here as features are built.
 
@@ -33,7 +38,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         b.Entity<Settings>(e =>
         {
             e.ToTable("Settings");
-            e.Property(s => s.Data).HasColumnType("jsonb");
+            e.Property(s => s.LaborHourRate).HasPrecision(18, 4);
+            e.Property(s => s.ProfitFloorPercent).HasPrecision(18, 4);
 
             // One settings row per business.
             e.HasIndex(s => s.BusinessId).IsUnique();
@@ -42,6 +48,47 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
              .WithMany()
              .HasForeignKey(s => s.BusinessId)
              .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ── Settings lists ────────────────────────────────────────────────────
+        // Names are unique per business: the UI identifies rows by name and the
+        // pricing code looks materials up by it.
+        b.Entity<Material>(e =>
+        {
+            e.HasIndex(m => new { m.BusinessId, m.Name }).IsUnique();
+            e.Property(m => m.PricePerGram).HasPrecision(18, 4);
+            e.Property(m => m.LaborHoursPerGram).HasPrecision(18, 4);
+            e.Property(m => m.ProfitMultiplier).HasPrecision(18, 4);
+            e.HasOne<Business>().WithMany().HasForeignKey(m => m.BusinessId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<FeeItem>(e =>
+        {
+            e.HasIndex(f => new { f.BusinessId, f.Name }).IsUnique();
+            e.Property(f => f.Percent).HasPrecision(18, 4);
+            e.HasOne<Business>().WithMany().HasForeignKey(f => f.BusinessId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<PricingAdditionCategory>(e =>
+        {
+            e.HasIndex(c => new { c.BusinessId, c.Name }).IsUnique();
+            e.Property(c => c.BasePrice).HasPrecision(18, 4);
+            e.HasOne<Business>().WithMany().HasForeignKey(c => c.BusinessId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<PricingAdditionItem>(e =>
+        {
+            e.HasIndex(i => new { i.CategoryId, i.Name }).IsUnique();
+            e.HasIndex(i => i.BusinessId);
+            e.Property(i => i.Price).HasPrecision(18, 4);
+            e.HasOne(i => i.Category).WithMany(c => c.Items).HasForeignKey(i => i.CategoryId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Business>().WithMany().HasForeignKey(i => i.BusinessId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<PreparationStage>(e =>
+        {
+            e.HasIndex(s => new { s.BusinessId, s.Name }).IsUnique();
+            e.HasOne<Business>().WithMany().HasForeignKey(s => s.BusinessId).OnDelete(DeleteBehavior.Cascade);
         });
 
         // ── User ──────────────────────────────────────────────────────────────

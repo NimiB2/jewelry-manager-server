@@ -1,39 +1,143 @@
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using JewelryManager.Api.Auth;
 using JewelryManager.Api.Common.Exceptions;
 using JewelryManager.Api.Data;
+using JewelryManager.Api.Data.Entities;
 using JewelryManager.Api.Features.Settings.Dtos;
 using Microsoft.EntityFrameworkCore;
-using SettingsEntity = JewelryManager.Api.Data.Entities.Settings;
 
 namespace JewelryManager.Api.Features.Settings;
 
 public class SettingsService(AppDbContext db, CurrentUserAccessor tenant)
 {
-    // Unsent (null) fields must be dropped, otherwise the merge below would erase them.
-    private static readonly JsonSerializerOptions PatchOptions =
-        new(JsonSerializerDefaults.Web) { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
-
-    public async Task<SettingsEntity> GetSettingsAsync() =>
-        await db.Settings
-            .AsNoTracking()
-            .FirstOrDefaultAsync(s => s.BusinessId == tenant.GetBusinessId())
-        ?? throw new NotFoundException("Settings not found for this business");
-
-    public async Task<SettingsEntity> UpdateSettingsAsync(UpdateSettingsDto dto)
+    public async Task<SettingsResponse> GetSettingsAsync()
     {
-        var existing = await GetSettingsAsync();
-        var patch = JsonSerializer.Serialize(dto, PatchOptions);
         var businessId = tenant.GetBusinessId();
-        var now = DateTime.UtcNow;
 
-        // Merge inside the database (jsonb ||) instead of read-modify-write: each settings
-        // section autosaves on its own timer, so overlapping PATCHes must not overwrite
-        // each other with stale data.
+        var settings = await db.Settings.AsNoTracking()
+            .FirstOrDefaultAsync(s => s.BusinessId == businessId)
+            ?? throw new NotFoundException("Settings not found for this business");
+
+        var materials = await db.Materials.AsNoTracking()
+            .Where(m => m.BusinessId == businessId)
+            .OrderBy(m => m.SortOrder)
+            .ToListAsync();
+
+        var fees = await db.FeeItems.AsNoTracking()
+            .Where(f => f.BusinessId == businessId)
+            .OrderBy(f => f.SortOrder)
+            .ToListAsync();
+
+        var categories = await db.PricingAdditionCategories.AsNoTracking()
+            .Where(c => c.BusinessId == businessId)
+            .Include(c => c.Items)
+            .OrderBy(c => c.SortOrder)
+            .ToListAsync();
+
+        var stages = await db.PreparationStages.AsNoTracking()
+            .Where(s => s.BusinessId == businessId)
+            .OrderBy(s => s.SortOrder)
+            .Select(s => s.Name)
+            .ToListAsync();
+
+        var data = new SettingsDataResponse(
+            Materials: materials.ToDictionary(
+                m => m.Name,
+                m => new MaterialSettingsDto(m.PricePerGram, m.LaborHoursPerGram, m.ProfitMultiplier)),
+            LaborHourRate: settings.LaborHourRate,
+            PricingAdditions: categories.Select(c => new PricingAdditionDto(
+                c.Name,
+                c.BasePrice,
+                c.Items.OrderBy(i => i.SortOrder).Select(i => new PricingItemDto(i.Name, i.Price)).ToList())).ToList(),
+            FeesItems: fees.Select(f => new FeeItemDto(f.Name, f.Percent, f.IsPermanent)).ToList(),
+            ProfitFloorPercent: settings.ProfitFloorPercent,
+            PreparationStages: stages);
+
+        return new SettingsResponse(settings.Id, settings.BusinessId, data, settings.UpdatedAt);
+    }
+
+    public async Task<SettingsResponse> UpdateSettingsAsync(UpdateSettingsDto dto)
+    {
+        var businessId = tenant.GetBusinessId();
+        RejectDuplicateNames(dto);
+
+        await using var tx = await db.Database.BeginTransactionAsync();
+
+        // Settings autosave per section, so PATCHes can overlap. Serializing them per business
+        // keeps "delete the section's rows, insert the new ones" from interleaving.
         await db.Database.ExecuteSqlInterpolatedAsync(
-            $"UPDATE \"Settings\" SET \"Data\" = \"Data\" || {patch}::jsonb, \"UpdatedAt\" = {now} WHERE \"Id\" = {existing.Id} AND \"BusinessId\" = {businessId}");
+            $"SELECT pg_advisory_xact_lock(hashtext({businessId.ToString()}))");
 
+        var settings = await db.Settings.FirstOrDefaultAsync(s => s.BusinessId == businessId)
+            ?? throw new NotFoundException("Settings not found for this business");
+
+        // Only the properties that were sent are assigned, so EF writes only those columns.
+        if (dto.LaborHourRate is { } rate) settings.LaborHourRate = rate;
+        if (dto.ProfitFloorPercent is { } floor) settings.ProfitFloorPercent = floor;
+        settings.UpdatedAt = DateTime.UtcNow;
+
+        if (dto.Materials is not null)
+        {
+            await db.Materials.Where(m => m.BusinessId == businessId).ExecuteDeleteAsync();
+            db.Materials.AddRange(dto.Materials.Select((m, i) => new Material
+            {
+                Id = Guid.NewGuid(), BusinessId = businessId, Name = m.Key.Trim(),
+                PricePerGram = m.Value.PricePerGram, LaborHoursPerGram = m.Value.LaborHoursPerGram,
+                ProfitMultiplier = m.Value.ProfitMultiplier, SortOrder = i,
+            }));
+        }
+
+        if (dto.FeesItems is not null)
+        {
+            await db.FeeItems.Where(f => f.BusinessId == businessId).ExecuteDeleteAsync();
+            db.FeeItems.AddRange(dto.FeesItems.Select((f, i) => new FeeItem
+            {
+                Id = Guid.NewGuid(), BusinessId = businessId, Name = f.Name.Trim(),
+                Percent = f.Percent, IsPermanent = f.IsPermanent ?? false, SortOrder = i,
+            }));
+        }
+
+        if (dto.PricingAdditions is not null)
+        {
+            // Deleting a category cascades to its items in the database.
+            await db.PricingAdditionCategories.Where(c => c.BusinessId == businessId).ExecuteDeleteAsync();
+            db.PricingAdditionCategories.AddRange(dto.PricingAdditions.Select((c, i) => new PricingAdditionCategory
+            {
+                Id = Guid.NewGuid(), BusinessId = businessId, Name = c.Name.Trim(), BasePrice = c.BasePrice, SortOrder = i,
+                Items = c.Items.Select((item, j) => new PricingAdditionItem
+                {
+                    Id = Guid.NewGuid(), BusinessId = businessId, Name = item.Name.Trim(), Price = item.Price, SortOrder = j,
+                }).ToList(),
+            }));
+        }
+
+        if (dto.PreparationStages is not null)
+        {
+            await db.PreparationStages.Where(s => s.BusinessId == businessId).ExecuteDeleteAsync();
+            db.PreparationStages.AddRange(dto.PreparationStages.Select((name, i) => new PreparationStage
+            {
+                Id = Guid.NewGuid(), BusinessId = businessId, Name = name.Trim(), SortOrder = i,
+            }));
+        }
+
+        await db.SaveChangesAsync();
+        await tx.CommitAsync();
+
+        db.ChangeTracker.Clear();
         return await GetSettingsAsync();
     }
+
+    // The tables enforce unique names too; checking first turns a database error into a clear 400.
+    private static void RejectDuplicateNames(UpdateSettingsDto dto)
+    {
+        if (HasDuplicates(dto.Materials?.Keys)) throw new BadRequestException("Material names must be unique");
+        if (HasDuplicates(dto.FeesItems?.Select(f => f.Name))) throw new BadRequestException("Fee names must be unique");
+        if (HasDuplicates(dto.PreparationStages)) throw new BadRequestException("Preparation stage names must be unique");
+        if (HasDuplicates(dto.PricingAdditions?.Select(c => c.Name)))
+            throw new BadRequestException("Category names must be unique");
+        if (dto.PricingAdditions?.Any(c => HasDuplicates(c.Items.Select(i => i.Name))) == true)
+            throw new BadRequestException("Item names must be unique within a category");
+    }
+
+    private static bool HasDuplicates(IEnumerable<string>? names) =>
+        names is not null && names.Select(n => n.Trim()).Distinct().Count() != names.Count();
 }

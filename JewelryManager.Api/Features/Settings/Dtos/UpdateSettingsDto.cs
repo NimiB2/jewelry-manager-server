@@ -2,25 +2,33 @@ using System.ComponentModel.DataAnnotations;
 
 namespace JewelryManager.Api.Features.Settings.Dtos;
 
-public record MaterialSettingsDto(double PricePerGram, double LaborHoursPerGram, double ProfitMultiplier);
+// Shared by requests and responses: the API keeps the same shape the client has always used.
 
-public record PricingItemDto([Required] string Name, double Price);
+public record MaterialSettingsDto(
+    [Range(0, 1_000_000)] decimal PricePerGram,
+    [Range(0, 1_000_000)] decimal LaborHoursPerGram,
+    [Range(0, 1_000_000)] decimal ProfitMultiplier);
 
-public record PricingAdditionDto([Required] string Name, double BasePrice, List<PricingItemDto> Items);
+public record PricingItemDto([Required] string Name, [Range(0, 1_000_000)] decimal Price);
+
+public record PricingAdditionDto(
+    [Required] string Name,
+    [Range(0, 1_000_000)] decimal BasePrice,
+    [Required] List<PricingItemDto> Items);
 
 // IsPermanent hides the delete button client-side so the fee rates the pricing
 // formula relies on can't be removed by accident.
-public record FeeItemDto([Required] string Name, double Percent, bool? IsPermanent);
+public record FeeItemDto([Required] string Name, [Range(0, 1_000_000)] decimal Percent, bool? IsPermanent);
 
 /// <summary>
-/// Every field is optional: PATCH /settings only touches the keys that were sent
-/// (null = not sent).
+/// Every field is optional: PATCH /settings replaces only the sections that were sent
+/// (null = not sent). A sent list or dictionary replaces that whole section.
 /// </summary>
 public record UpdateSettingsDto(
     Dictionary<string, MaterialSettingsDto>? Materials,
-    double? LaborHourRate,
+    [Range(0, 1_000_000)] decimal? LaborHourRate,
     List<PricingAdditionDto>? PricingAdditions,
     List<FeeItemDto>? FeesItems,
-    double? ProfitFloorPercent,
+    [Range(0, 1_000_000)] decimal? ProfitFloorPercent,
     List<string>? PreparationStages
 );

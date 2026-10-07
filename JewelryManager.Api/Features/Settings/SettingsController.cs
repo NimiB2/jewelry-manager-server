@@ -1,6 +1,5 @@
 using JewelryManager.Api.Features.Settings.Dtos;
 using Microsoft.AspNetCore.Mvc;
-using SettingsEntity = JewelryManager.Api.Data.Entities.Settings;
 
 namespace JewelryManager.Api.Features.Settings;
 
@@ -9,9 +8,9 @@ namespace JewelryManager.Api.Features.Settings;
 public class SettingsController(SettingsService service) : ControllerBase
 {
     [HttpGet]
-    public Task<SettingsEntity> GetSettings() => service.GetSettingsAsync();
+    public Task<SettingsResponse> GetSettings() => service.GetSettingsAsync();
 
     [HttpPatch]
-    public Task<SettingsEntity> UpdateSettings(UpdateSettingsDto dto) =>
+    public Task<SettingsResponse> UpdateSettings(UpdateSettingsDto dto) =>
         service.UpdateSettingsAsync(dto);
 }

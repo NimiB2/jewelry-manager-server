@@ -1,4 +1,3 @@
-using System.Text.Json;
 using JewelryManager.Api.Common.Exceptions;
 using JewelryManager.Api.Data;
 using JewelryManager.Api.Data.Entities;
@@ -17,120 +16,150 @@ public class PersistenceTests(PostgresFixture pg)
 {
     private static readonly UpdateSettingsDto NoChange = new(null, null, null, null, null, null);
 
-    // Each helper builds fresh DbContext + service instances = a "restarted server".
-    private SettingsService Settings(Guid business, out AppDbContext db)
+    // Every call builds a fresh DbContext + service = a "restarted server": anything read back
+    // has to come from the database, not from memory.
+    private async Task<T> WithSettings<T>(Guid business, Func<SettingsService, Task<T>> action)
     {
-        db = pg.NewDb();
-        return new SettingsService(db, PostgresFixture.TenantFor(business));
+        await using var db = pg.NewDb();
+        return await action(new SettingsService(db, PostgresFixture.TenantFor(business)));
     }
 
     private async Task SeedSettingsAsync(Guid business)
     {
         await using var db = pg.NewDb();
         if (await db.Settings.AnyAsync(s => s.BusinessId == business)) return;
+
+        var now = DateTime.UtcNow;
         db.Settings.Add(new Settings
         {
-            Id = Guid.NewGuid(), BusinessId = business, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
-            Data = JsonDocument.Parse("""{"laborHourRate":100,"profitFloorPercent":30,"preparationStages":["a","b"]}"""),
+            Id = Guid.NewGuid(), BusinessId = business, LaborHourRate = 100, ProfitFloorPercent = 30,
+            CreatedAt = now, UpdatedAt = now,
         });
         await db.SaveChangesAsync();
+
+        await WithSettings(business, s => s.UpdateSettingsAsync(NoChange with { PreparationStages = ["a", "b"] }));
     }
 
     [Fact]
-    public async Task SettingsPatch_IsStored_AndSurvivesAFreshContext()
+    public async Task ScalarSetting_IsStored_AndSurvivesAFreshContext()
     {
         await SeedSettingsAsync(pg.BusinessA);
 
-        var first = Settings(pg.BusinessA, out var db1);
-        await using (db1)
-            await first.UpdateSettingsAsync(NoChange with { LaborHourRate = 150 });
+        await WithSettings(pg.BusinessA, s => s.UpdateSettingsAsync(NoChange with { LaborHourRate = 150 }));
 
-        var second = Settings(pg.BusinessA, out var db2);
-        await using (db2)
-        {
-            var data = (await second.GetSettingsAsync()).Data.RootElement;
-            Assert.Equal(150, data.GetProperty("laborHourRate").GetDouble());
-        }
+        var read = await WithSettings(pg.BusinessA, s => s.GetSettingsAsync());
+        Assert.Equal(150, read.Data.LaborHourRate);
     }
 
     [Fact]
-    public async Task SettingsPatch_OnlyTouchesSentKeys()
+    public async Task Patch_OnlyReplacesTheSectionsThatWereSent()
     {
         await SeedSettingsAsync(pg.BusinessA);
+        await WithSettings(pg.BusinessA, s => s.UpdateSettingsAsync(NoChange with { PreparationStages = ["a", "b"] }));
 
-        var svc = Settings(pg.BusinessA, out var db);
-        await using (db)
-            await svc.UpdateSettingsAsync(NoChange with { ProfitFloorPercent = 45 });
+        await WithSettings(pg.BusinessA, s => s.UpdateSettingsAsync(NoChange with { ProfitFloorPercent = 45 }));
 
-        var read = Settings(pg.BusinessA, out var db2);
-        await using (db2)
-        {
-            var data = (await read.GetSettingsAsync()).Data.RootElement;
-            Assert.Equal(45, data.GetProperty("profitFloorPercent").GetDouble());
-            Assert.True(data.TryGetProperty("preparationStages", out var stages));
-            Assert.Equal(2, stages.GetArrayLength());
-        }
+        var read = await WithSettings(pg.BusinessA, s => s.GetSettingsAsync());
+        Assert.Equal(45, read.Data.ProfitFloorPercent);
+        Assert.Equal(["a", "b"], read.Data.PreparationStages);
     }
 
     [Fact]
-    public async Task SettingsPatch_RoundTripsComplexSections()
+    public async Task Sections_AreStoredAsRealRows_InTheOrderTheyWereSent()
     {
         await SeedSettingsAsync(pg.BusinessA);
         var dto = NoChange with
         {
-            Materials = new() { ["זהב"] = new MaterialSettingsDto(12, 0.5, 1.8) },
+            Materials = new() { ["זהב"] = new(12, 0.5m, 1.8m), ["כסף"] = new(8, 1, 1.5m), ["אבץ"] = new(1, 1, 1.2m) },
             FeesItems = [new FeeItemDto("מע\"מ", 18, true), new FeeItemDto("אחר", 2, null)],
-            PricingAdditions = [new PricingAdditionDto("אריזה", 1, [new PricingItemDto("קופסה", 8)])],
+            PricingAdditions =
+            [
+                new PricingAdditionDto("אריזה", 1, [new("קופסה", 8), new("שקית", 3)]),
+                new PricingAdditionDto("משלוח", 0, []),
+            ],
+            PreparationStages = ["ניקוי", "יציקה", "ליטוש"],
         };
 
-        var svc = Settings(pg.BusinessA, out var db);
-        await using (db) await svc.UpdateSettingsAsync(dto);
+        await WithSettings(pg.BusinessA, s => s.UpdateSettingsAsync(dto));
 
-        var read = Settings(pg.BusinessA, out var db2);
-        await using (db2)
-        {
-            var data = (await read.GetSettingsAsync()).Data.RootElement;
-            Assert.Equal(1.8, data.GetProperty("materials").GetProperty("זהב").GetProperty("profitMultiplier").GetDouble());
-            Assert.True(data.GetProperty("feesItems")[0].GetProperty("isPermanent").GetBoolean());
-            Assert.False(data.GetProperty("feesItems")[1].TryGetProperty("isPermanent", out _));
-            Assert.Equal("קופסה", data.GetProperty("pricingAdditions")[0].GetProperty("items")[0].GetProperty("name").GetString());
-        }
+        var read = (await WithSettings(pg.BusinessA, s => s.GetSettingsAsync())).Data;
+        Assert.Equal(["זהב", "כסף", "אבץ"], read.Materials.Keys);
+        Assert.Equal(1.8m, read.Materials["זהב"].ProfitMultiplier);
+        Assert.Equal(["מע\"מ", "אחר"], read.FeesItems.Select(f => f.Name));
+        Assert.True(read.FeesItems[0].IsPermanent);
+        Assert.False(read.FeesItems[1].IsPermanent);
+        Assert.Equal(["אריזה", "משלוח"], read.PricingAdditions.Select(c => c.Name));
+        Assert.Equal(["קופסה", "שקית"], read.PricingAdditions[0].Items.Select(i => i.Name));
+        Assert.Empty(read.PricingAdditions[1].Items);
+        Assert.Equal(["ניקוי", "יציקה", "ליטוש"], read.PreparationStages);
+
+        // Not a blob: the data is genuinely in separate tables.
+        await using var db = pg.NewDb();
+        Assert.Equal(3, await db.Materials.CountAsync(m => m.BusinessId == pg.BusinessA));
+        Assert.Equal(2, await db.PricingAdditionItems.CountAsync(i => i.BusinessId == pg.BusinessA));
     }
 
     [Fact]
-    public async Task OverlappingPatchesToDifferentSections_BothSurvive()
+    public async Task SendingASectionAgain_ReplacesItInsteadOfAppending()
+    {
+        await SeedSettingsAsync(pg.BusinessA);
+
+        await WithSettings(pg.BusinessA, s => s.UpdateSettingsAsync(NoChange with { Materials = new() { ["x"] = new(1, 1, 1.5m) } }));
+        await WithSettings(pg.BusinessA, s => s.UpdateSettingsAsync(NoChange with { Materials = new() { ["y"] = new(2, 2, 1.5m) } }));
+
+        var read = await WithSettings(pg.BusinessA, s => s.GetSettingsAsync());
+        Assert.Equal(["y"], read.Data.Materials.Keys);
+    }
+
+    [Fact]
+    public async Task OverlappingPatches_ToDifferentSections_BothSurvive()
     {
         await SeedSettingsAsync(pg.BusinessA);
 
         await Task.WhenAll(
-            Task.Run(async () =>
-            {
-                var s = Settings(pg.BusinessA, out var d);
-                await using (d) await s.UpdateSettingsAsync(NoChange with { LaborHourRate = 222 });
-            }),
-            Task.Run(async () =>
-            {
-                var s = Settings(pg.BusinessA, out var d);
-                await using (d) await s.UpdateSettingsAsync(NoChange with { ProfitFloorPercent = 33 });
-            }));
+            WithSettings(pg.BusinessA, s => s.UpdateSettingsAsync(NoChange with { LaborHourRate = 222 })),
+            WithSettings(pg.BusinessA, s => s.UpdateSettingsAsync(NoChange with { ProfitFloorPercent = 33 })),
+            WithSettings(pg.BusinessA, s => s.UpdateSettingsAsync(NoChange with { Materials = new() { ["m"] = new(1, 1, 1.5m) } })),
+            WithSettings(pg.BusinessA, s => s.UpdateSettingsAsync(NoChange with { PreparationStages = ["p", "q"] })));
 
-        var read = Settings(pg.BusinessA, out var db);
-        await using (db)
-        {
-            var data = (await read.GetSettingsAsync()).Data.RootElement;
-            Assert.Equal(222, data.GetProperty("laborHourRate").GetDouble());
-            Assert.Equal(33, data.GetProperty("profitFloorPercent").GetDouble());
-        }
+        var read = (await WithSettings(pg.BusinessA, s => s.GetSettingsAsync())).Data;
+        Assert.Equal(222, read.LaborHourRate);
+        Assert.Equal(33, read.ProfitFloorPercent);
+        Assert.Equal(["m"], read.Materials.Keys);
+        Assert.Equal(["p", "q"], read.PreparationStages);
+    }
+
+    [Fact]
+    public async Task OverlappingPatches_ToTheSameSection_DoNotFail_AndLeaveOneConsistentResult()
+    {
+        await SeedSettingsAsync(pg.BusinessA);
+
+        await Task.WhenAll(Enumerable.Range(0, 6).Select(n =>
+            WithSettings(pg.BusinessA, s => s.UpdateSettingsAsync(
+                NoChange with { Materials = new() { [$"mat{n}"] = new(n, 1, 1.5m) } }))));
+
+        var read = await WithSettings(pg.BusinessA, s => s.GetSettingsAsync());
+        Assert.Single(read.Data.Materials);
+    }
+
+    [Fact]
+    public async Task DuplicateNames_AreRejectedWithBadRequest()
+    {
+        await SeedSettingsAsync(pg.BusinessA);
+
+        await Assert.ThrowsAsync<BadRequestException>(() => WithSettings(pg.BusinessA, s =>
+            s.UpdateSettingsAsync(NoChange with { PreparationStages = ["same", " same "] })));
+        await Assert.ThrowsAsync<BadRequestException>(() => WithSettings(pg.BusinessA, s =>
+            s.UpdateSettingsAsync(NoChange with { FeesItems = [new("f", 1, null), new("f", 2, null)] })));
     }
 
     [Fact]
     public async Task Settings_AreIsolatedBetweenBusinesses()
     {
         await SeedSettingsAsync(pg.BusinessA);
+        await WithSettings(pg.BusinessA, s => s.UpdateSettingsAsync(NoChange with { Materials = new() { ["secret"] = new(1, 1, 1.5m) } }));
 
-        var other = Settings(pg.BusinessB, out var db);
-        await using (db)
-            await Assert.ThrowsAsync<NotFoundException>(() => other.GetSettingsAsync());
+        await Assert.ThrowsAsync<NotFoundException>(() => WithSettings(pg.BusinessB, s => s.GetSettingsAsync()));
     }
 
     [Fact]
@@ -216,7 +245,7 @@ public class PersistenceTests(PostgresFixture pg)
     }
 
     [Fact]
-    public async Task Seeder_IsIdempotent()
+    public async Task Seeder_IsIdempotent_AndSeedsTheRealMaterialsAndPackaging()
     {
         var config = new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build();
 
@@ -226,8 +255,13 @@ public class PersistenceTests(PostgresFixture pg)
             await new DbSeeder(db, config).SeedAsync();
         }
 
-        await using var check = pg.NewDb();
         var seeded = Guid.Parse("00000000-0000-0000-0000-000000000001");
+        var read = (await WithSettings(seeded, s => s.GetSettingsAsync())).Data;
+        Assert.Equal(5, read.Materials.Count);
+        Assert.Equal(330, read.Materials["14K זהב"].PricePerGram);
+        Assert.Equal(8, read.PricingAdditions.Single(c => c.Name == "אריזה").Items.Count);
+
+        await using var check = pg.NewDb();
         Assert.Equal(1, await check.Settings.CountAsync(s => s.BusinessId == seeded));
         Assert.Equal(2, await check.Collections.CountAsync(c => c.BusinessId == seeded && c.IsPermanent));
     }
