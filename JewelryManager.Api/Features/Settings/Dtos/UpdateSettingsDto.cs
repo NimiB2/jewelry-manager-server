@@ -41,5 +41,7 @@ public record UpdateSettingsDto(
     List<string>? PreparationStages,
     List<ProductAdditionTypeDto>? ProductAdditionTypes = null,
     // Quick-pick discount percentages, each between 0.01 and 100.
-    List<decimal>? DiscountPresets = null
+    List<decimal>? DiscountPresets = null,
+    // A customer name starting with this marks a test order; empty turns the feature off.
+    [MaxLength(50)] string? TestOrderPrefix = null
 );

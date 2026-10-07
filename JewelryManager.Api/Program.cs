@@ -4,6 +4,7 @@ using JewelryManager.Api.Auth;
 using JewelryManager.Api.Common.Filters;
 using JewelryManager.Api.Data;
 using JewelryManager.Api.Features.Collections;
+using JewelryManager.Api.Features.Orders;
 using JewelryManager.Api.Features.Pricing;
 using JewelryManager.Api.Features.Products;
 using JewelryManager.Api.Features.Settings;
@@ -69,6 +70,7 @@ builder.Services.AddScoped<CollectionsService>();
 builder.Services.AddScoped<SettingsService>();
 builder.Services.AddScoped<PricingService>();
 builder.Services.AddScoped<ProductsService>();
+builder.Services.AddScoped<OrdersService>();
 builder.Services.AddScoped<UsersService>();
 builder.Services.AddScoped<DbSeeder>();
 

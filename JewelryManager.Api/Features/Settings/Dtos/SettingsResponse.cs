@@ -9,6 +9,7 @@ public record SettingsDataResponse(
     decimal ProfitFloorPercent,
     List<string> PreparationStages,
     List<ProductAdditionTypeDto> ProductAdditionTypes,
-    List<decimal> DiscountPresets);
+    List<decimal> DiscountPresets,
+    string TestOrderPrefix);
 
 public record SettingsResponse(Guid Id, Guid BusinessId, SettingsDataResponse Data, DateTime UpdatedAt);

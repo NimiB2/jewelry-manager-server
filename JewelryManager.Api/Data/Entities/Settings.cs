@@ -13,6 +13,9 @@ public class Settings
     public decimal LaborHourRate { get; set; }
     public decimal ProfitFloorPercent { get; set; }
 
+    // A customer name starting with this marks a test order (numbered from 500 instead of 1000).
+    public string TestOrderPrefix { get; set; } = "בדיקה";
+
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 }

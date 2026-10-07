@@ -21,6 +21,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<PreparationStage> PreparationStages => Set<PreparationStage>();
     public DbSet<ProductAdditionType> ProductAdditionTypes => Set<ProductAdditionType>();
     public DbSet<DiscountPreset> DiscountPresets => Set<DiscountPreset>();
+    public DbSet<Order> Orders => Set<Order>();
+    public DbSet<OrderLineItem> OrderLineItems => Set<OrderLineItem>();
     public DbSet<Product> Products => Set<Product>();
     public DbSet<ProductCollection> ProductCollections => Set<ProductCollection>();
     public DbSet<ProductAddition> ProductAdditions => Set<ProductAddition>();
@@ -45,6 +47,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.ToTable("Settings");
             e.Property(s => s.LaborHourRate).HasPrecision(18, 4);
             e.Property(s => s.ProfitFloorPercent).HasPrecision(18, 4);
+            e.Property(s => s.TestOrderPrefix).HasMaxLength(50).HasDefaultValue("בדיקה");
 
             // One settings row per business.
             e.HasIndex(s => s.BusinessId).IsUnique();
@@ -90,6 +93,32 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasIndex(i => i.BusinessId);
             e.Property(i => i.Price).HasPrecision(18, 4);
             e.HasOne(i => i.Category).WithMany(c => c.Items).HasForeignKey(i => i.CategoryId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Business>().WithMany().HasForeignKey(i => i.BusinessId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ── Orders ────────────────────────────────────────────────────────────
+        b.Entity<Order>(e =>
+        {
+            e.HasIndex(o => new { o.BusinessId, o.Number }).IsUnique();
+            e.HasIndex(o => new { o.BusinessId, o.Date });
+            e.Property(o => o.Amount).HasPrecision(18, 2);
+            e.Property(o => o.FinalAmount).HasPrecision(18, 2);
+            e.Property(o => o.LaborHourRate).HasPrecision(18, 4);
+            e.Property(o => o.Status).HasConversion<string>();
+            e.Property(o => o.Source).HasConversion<string>();
+            e.HasOne<Business>().WithMany().HasForeignKey(o => o.BusinessId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<OrderLineItem>(e =>
+        {
+            e.HasIndex(i => i.OrderId);
+            e.HasIndex(i => i.BusinessId);
+            e.Property(i => i.UnitPrice).HasPrecision(18, 2);
+            e.Property(i => i.WorkHours).HasPrecision(18, 4);
+            e.HasOne(i => i.Order).WithMany(o => o.Items).HasForeignKey(i => i.OrderId).OnDelete(DeleteBehavior.Cascade);
+
+            // Deleting a product must not rewrite history: the line keeps its snapshot, only the link goes.
+            e.HasOne<Product>().WithMany().HasForeignKey(i => i.ProductId).OnDelete(DeleteBehavior.SetNull);
             e.HasOne<Business>().WithMany().HasForeignKey(i => i.BusinessId).OnDelete(DeleteBehavior.Cascade);
         });
 

@@ -64,7 +64,8 @@ public class SettingsService(AppDbContext db, CurrentUserAccessor tenant)
             ProfitFloorPercent: settings.ProfitFloorPercent,
             PreparationStages: stages,
             ProductAdditionTypes: additionTypes,
-            DiscountPresets: discountPresets);
+            DiscountPresets: discountPresets,
+            TestOrderPrefix: settings.TestOrderPrefix);
 
         return new SettingsResponse(settings.Id, settings.BusinessId, data, settings.UpdatedAt);
     }
@@ -87,6 +88,7 @@ public class SettingsService(AppDbContext db, CurrentUserAccessor tenant)
         // Only the properties that were sent are assigned, so EF writes only those columns.
         if (dto.LaborHourRate is { } rate) settings.LaborHourRate = rate;
         if (dto.ProfitFloorPercent is { } floor) settings.ProfitFloorPercent = floor;
+        if (dto.TestOrderPrefix is not null) settings.TestOrderPrefix = dto.TestOrderPrefix.Trim();
         settings.UpdatedAt = DateTime.UtcNow;
 
         if (dto.Materials is not null)
