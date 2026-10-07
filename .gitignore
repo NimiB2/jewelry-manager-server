@@ -1,7 +1,26 @@
+# Build output
 bin/
 obj/
-*.user
+TestResults/
+coverage*/
+
+# IDE
 .vs/
+.idea/
+.vscode/
+*.user
+*.suo
+
+# Secrets and local config — never commit
 appsettings.Development.json
-firebase-adminsdk.json
+appsettings.*.local.json
+.env
+.env.*
 *.env
+firebase-adminsdk*.json
+*firebase-adminsdk*.json
+*service-account*.json
+*.pem
+*.pfx
+*.key
+secrets.json
