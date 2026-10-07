@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="JewelryManager.Api/JewelryManager.Api.csproj" />
+  <Project Path="JewelryManager.Tests/JewelryManager.Tests.csproj" />
+</Solution>

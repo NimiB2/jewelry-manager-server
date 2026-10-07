@@ -1,11 +1,7 @@
-node_modules
-dist
-*.tsbuildinfo
-# Keep environment variables out of version control
-.env
-
-/src/generated/prisma
-
-# Firebase service account keys (secret, never commit)
-*firebase-adminsdk*.json
-firebase-service-account*.json
+bin/
+obj/
+*.user
+.vs/
+appsettings.Development.json
+firebase-adminsdk.json
+*.env
