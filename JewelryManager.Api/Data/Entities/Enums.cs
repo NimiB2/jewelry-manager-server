@@ -32,3 +32,10 @@ public enum IncomeCategory
     Sales,
     Other,
 }
+
+public enum WorkTaskStatus
+{
+    New,
+    InProgress,
+    Completed,
+}

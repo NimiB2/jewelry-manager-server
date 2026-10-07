@@ -2,6 +2,7 @@ using JewelryManager.Api.Auth;
 using JewelryManager.Api.Common.Exceptions;
 using JewelryManager.Api.Data;
 using JewelryManager.Api.Data.Entities;
+using JewelryManager.Api.Features.Incomes;
 using JewelryManager.Api.Features.Orders.Dtos;
 using Microsoft.EntityFrameworkCore;
 
@@ -168,6 +169,8 @@ public class OrdersService(AppDbContext db, CurrentUserAccessor tenant)
             order.IsCompleted = status == OrderStatus.Completed;
             order.CompletedDate = order.IsCompleted ? DateTime.UtcNow : null;
             order.UpdatedAt = DateTime.UtcNow;
+
+            await SyncIncomeAsync(order);
             await db.SaveChangesAsync();
         }
 
@@ -242,7 +245,32 @@ public class OrdersService(AppDbContext db, CurrentUserAccessor tenant)
         var order = await FindOrThrowAsync(id, asNoTracking: false);
         order.IsDeleted = true;
         order.UpdatedAt = DateTime.UtcNow;
+
+        // A deleted order disappears from the app, so its income leaves the books too.
+        await RemoveIncomeAsync(order.Id);
         await db.SaveChangesAsync();
+    }
+
+    // A completed order books its income (a frozen snapshot); reopening the order takes it back out.
+    // Demo orders never reach the books.
+    private async Task SyncIncomeAsync(Order order)
+    {
+        if (!order.IsCompleted)
+        {
+            await RemoveIncomeAsync(order.Id);
+            return;
+        }
+
+        if (await db.Incomes.AnyAsync(i => i.OrderId == order.Id)) return;
+        if (IsTestCustomer(order.Customer, await GetTestPrefixAsync())) return;
+
+        db.Incomes.Add(OrderIncomeFactory.Create(order));
+    }
+
+    private async Task RemoveIncomeAsync(Guid orderId)
+    {
+        var businessId = tenant.GetBusinessId();
+        db.Incomes.RemoveRange(await db.Incomes.Where(i => i.BusinessId == businessId && i.OrderId == orderId).ToListAsync());
     }
 
     private static string? CleanNote(string? note) => string.IsNullOrWhiteSpace(note) ? null : note.Trim();
@@ -328,7 +356,7 @@ public class OrdersService(AppDbContext db, CurrentUserAccessor tenant)
         return (maxReal ?? RealSeriesStart - 1) + 1;
     }
 
-    private static bool IsTestCustomer(string? customer, string? prefix) =>
+    public static bool IsTestCustomer(string? customer, string? prefix) =>
         !string.IsNullOrWhiteSpace(prefix)
         && customer is not null
         && customer.TrimStart().StartsWith(prefix.Trim(), StringComparison.OrdinalIgnoreCase);

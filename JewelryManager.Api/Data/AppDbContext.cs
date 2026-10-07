@@ -27,6 +27,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<ProductCollection> ProductCollections => Set<ProductCollection>();
     public DbSet<ProductAddition> ProductAdditions => Set<ProductAddition>();
 
+    public DbSet<Expense> Expenses => Set<Expense>();
+    public DbSet<RecurringExpense> RecurringExpenses => Set<RecurringExpense>();
+    public DbSet<Income> Incomes => Set<Income>();
+    public DbSet<TaskItem> Tasks => Set<TaskItem>();
+
     // More DbSets will be added here as features are built.
 
     protected override void OnModelCreating(ModelBuilder b)
@@ -169,6 +174,59 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         {
             e.HasIndex(s => new { s.BusinessId, s.Name }).IsUnique();
             e.HasOne<Business>().WithMany().HasForeignKey(s => s.BusinessId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ── Finances ──────────────────────────────────────────────────────────
+        b.Entity<RecurringExpense>(e =>
+        {
+            e.HasIndex(r => new { r.BusinessId, r.IsActive });
+            e.Property(r => r.Amount).HasPrecision(18, 2);
+            e.Property(r => r.Category).HasConversion<string>();
+            e.Property(r => r.Description).HasMaxLength(300);
+            e.HasOne<Business>().WithMany().HasForeignKey(r => r.BusinessId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<Expense>(e =>
+        {
+            e.HasIndex(x => new { x.BusinessId, x.Date });
+            e.HasIndex(x => x.SeriesId);
+            e.Property(x => x.Amount).HasPrecision(18, 2);
+            e.Property(x => x.Category).HasConversion<string>();
+            e.Property(x => x.Description).HasMaxLength(300);
+            e.HasOne<Business>().WithMany().HasForeignKey(x => x.BusinessId).OnDelete(DeleteBehavior.Cascade);
+
+            // Stopping a series must not erase the expenses it already produced.
+            e.HasOne<RecurringExpense>().WithMany().HasForeignKey(x => x.SeriesId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        b.Entity<Income>(e =>
+        {
+            e.HasIndex(x => new { x.BusinessId, x.Date });
+
+            // One income per order: completing an order twice can never double the books.
+            e.HasIndex(x => x.OrderId).IsUnique().HasFilter("\"OrderId\" IS NOT NULL");
+            e.Property(x => x.Amount).HasPrecision(18, 2);
+            e.Property(x => x.WorkHours).HasPrecision(18, 4);
+            e.Property(x => x.LaborHourRate).HasPrecision(18, 4);
+            e.Property(x => x.Category).HasConversion<string>();
+            e.Property(x => x.Description).HasMaxLength(300);
+            e.HasOne<Business>().WithMany().HasForeignKey(x => x.BusinessId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Order>().WithMany().HasForeignKey(x => x.OrderId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ── Tasks ─────────────────────────────────────────────────────────────
+        b.Entity<TaskItem>(e =>
+        {
+            e.ToTable("Tasks");
+            e.HasIndex(t => new { t.BusinessId, t.Status });
+            e.HasIndex(t => t.OrderId);
+            e.Property(t => t.Title).HasMaxLength(200);
+            e.Property(t => t.Content).HasMaxLength(4000);
+            e.Property(t => t.Status).HasConversion<string>();
+            e.HasOne<Business>().WithMany().HasForeignKey(t => t.BusinessId).OnDelete(DeleteBehavior.Cascade);
+
+            // Orders are only soft-deleted, but if one is ever removed the task stays.
+            e.HasOne<Order>().WithMany().HasForeignKey(t => t.OrderId).OnDelete(DeleteBehavior.SetNull);
         });
 
         // ── User ──────────────────────────────────────────────────────────────
