@@ -7,7 +7,8 @@ public record SaveProductDto(
     [Required, MaxLength(100)] string Type,
     [Required, MaxLength(200)] string Name,
     [Required] string Material,
-    [Range(0.0001, 1_000_000)] decimal Weight,
+    // 0 is valid: some products (e.g. bead strings) are priced from their additions only.
+    [Range(0, 1_000_000)] decimal Weight,
     [Range(0, 1_000_000)] decimal AdditionalWorkHours,
     [Range(0, 100_000_000)] decimal SitePrice,
     [Required] List<ProductAdditionDto> Additions,
