@@ -36,7 +36,7 @@ public class ProductsTests(PostgresFixture pg)
         return await action(new SettingsService(db, PostgresFixture.TenantFor(business)));
     }
 
-    // A complete, known pricing setup: silver at 8/g (1 labor hour per gram, x1.5),
+    // A complete, known pricing setup: silver at 8/g (1 fixed labor hour per piece, x1.5),
     // packaging worth 5, labor 100/h, fees 3% card / 18% VAT / 17% fixed.
     private async Task ResetPricingSetupAsync()
     {
@@ -87,12 +87,12 @@ public class ProductsTests(PostgresFixture pg)
         var created = await WithProducts(Business, s => s.CreateProductAsync(Ring()));
         var read = await WithProducts(Business, s => s.GetProductAsync(created.Id));
 
-        // 5g silver: 40 metal + (5 x 1 + 0.5) x 100 = 550 labor + 60 stones + 5 packaging = 655.
+        // 5g silver: 40 metal + (1 fixed + 0.5 extra hours) x 100 = 150 labor + 60 stones + 5 packaging = 255.
         var expected = PricingFormula.Calculate(new PricingFormulaInput(
-            5, 8, 5.5, 100, 0, 60, 0, 5, 0.17, 1.5, 0.03, 0.18));
+            5, 8, 1.5, 100, 0, 60, 0, 5, 0.17, 1.5, 0.03, 0.18));
         Assert.NotNull(read.Price);
-        Assert.Equal(655m, read.Price.DirectCosts);
-        Assert.Equal(5.5m, read.Price.LaborHours);
+        Assert.Equal(255m, read.Price.DirectCosts);
+        Assert.Equal(1.5m, read.Price.LaborHours);
         Assert.Equal(Math.Round((decimal)expected.FinalPriceInclVat, 2), read.Price.RecommendedPrice);
         Assert.Equal(1500, read.SitePrice);
         Assert.Equal("סולטייר", read.Name);

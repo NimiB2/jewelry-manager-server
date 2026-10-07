@@ -62,7 +62,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         {
             e.HasIndex(m => new { m.BusinessId, m.Name }).IsUnique();
             e.Property(m => m.PricePerGram).HasPrecision(18, 4);
-            e.Property(m => m.LaborHoursPerGram).HasPrecision(18, 4);
+            e.Property(m => m.LaborHours).HasPrecision(18, 4);
             e.Property(m => m.ProfitMultiplier).HasPrecision(18, 4);
             e.HasOne<Business>().WithMany().HasForeignKey(m => m.BusinessId).OnDelete(DeleteBehavior.Cascade);
         });

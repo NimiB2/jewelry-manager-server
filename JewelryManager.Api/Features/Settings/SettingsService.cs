@@ -54,7 +54,7 @@ public class SettingsService(AppDbContext db, CurrentUserAccessor tenant)
         var data = new SettingsDataResponse(
             Materials: materials.ToDictionary(
                 m => m.Name,
-                m => new MaterialSettingsDto(m.PricePerGram, m.LaborHoursPerGram, m.ProfitMultiplier)),
+                m => new MaterialSettingsDto(m.PricePerGram, m.LaborHours, m.ProfitMultiplier)),
             LaborHourRate: settings.LaborHourRate,
             PricingAdditions: categories.Select(c => new PricingAdditionDto(
                 c.Name,
@@ -95,7 +95,7 @@ public class SettingsService(AppDbContext db, CurrentUserAccessor tenant)
             db.Materials.AddRange(dto.Materials.Select((m, i) => new Material
             {
                 Id = Guid.NewGuid(), BusinessId = businessId, Name = m.Key.Trim(),
-                PricePerGram = m.Value.PricePerGram, LaborHoursPerGram = m.Value.LaborHoursPerGram,
+                PricePerGram = m.Value.PricePerGram, LaborHours = m.Value.LaborHours,
                 ProfitMultiplier = m.Value.ProfitMultiplier, SortOrder = i,
             }));
         }

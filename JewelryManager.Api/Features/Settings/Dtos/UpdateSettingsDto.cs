@@ -6,7 +6,7 @@ namespace JewelryManager.Api.Features.Settings.Dtos;
 
 public record MaterialSettingsDto(
     [Range(0, 1_000_000)] decimal PricePerGram,
-    [Range(0, 1_000_000)] decimal LaborHoursPerGram,
+    [Range(0, 1_000_000)] decimal LaborHours,
     [Range(0, 1_000_000)] decimal ProfitMultiplier);
 
 public record PricingItemDto([Required] string Name, [Range(0, 1_000_000)] decimal Price);

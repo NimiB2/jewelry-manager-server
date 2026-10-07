@@ -11,7 +11,7 @@ public class DbSeeder(AppDbContext db, IConfiguration config)
 {
     private static readonly Guid BusinessId = Guid.Parse("00000000-0000-0000-0000-000000000001");
 
-    // Name, price per gram, labor hours per gram, profit multiplier.
+    // Name, price per gram, fixed labor hours per piece, profit multiplier.
     // The profit multipliers are placeholders (1.5 silver-based, 1.8 gold) — set the real ones in Settings.
     private static readonly (string Name, decimal Price, decimal Hours, decimal Multiplier)[] Materials =
     [
@@ -76,7 +76,7 @@ public class DbSeeder(AppDbContext db, IConfiguration config)
             db.Materials.AddRange(Materials.Select((m, i) => new Material
             {
                 Id = Guid.NewGuid(), BusinessId = BusinessId, Name = m.Name, PricePerGram = m.Price,
-                LaborHoursPerGram = m.Hours, ProfitMultiplier = m.Multiplier, SortOrder = i,
+                LaborHours = m.Hours, ProfitMultiplier = m.Multiplier, SortOrder = i,
             }));
 
             db.FeeItems.AddRange(Fees.Select((f, i) => new FeeItem

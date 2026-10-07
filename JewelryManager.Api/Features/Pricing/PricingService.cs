@@ -78,7 +78,8 @@ public class PricingService(AppDbContext db, CurrentUserAccessor tenant)
         if (!s.Materials.TryGetValue(material, out var m))
             throw new BadRequestException($"החומר '{material}' לא קיים יותר בהגדרות");
 
-        var laborHours = weight * m.LaborHoursPerGram + additionalWorkHours;
+        // Work time is fixed per piece by material; the product can add extra hours on top.
+        var laborHours = m.LaborHours + additionalWorkHours;
 
         var r = PricingFormula.Calculate(new PricingFormulaInput(
             MetalWeightGrams: (double)weight,
