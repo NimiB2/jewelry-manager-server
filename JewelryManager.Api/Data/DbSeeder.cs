@@ -52,6 +52,8 @@ public class DbSeeder(AppDbContext db, IConfiguration config)
         ("אחר", true),
     ];
 
+    private static readonly decimal[] DiscountPercents = [5, 10, 15];
+
     private static readonly string[] Stages = ["יציקה", "שיבוץ אבנים", "ליטוש", "ניקוי"];
 
     public async Task SeedAsync()
@@ -81,6 +83,11 @@ public class DbSeeder(AppDbContext db, IConfiguration config)
             {
                 Id = Guid.NewGuid(), BusinessId = BusinessId, Name = f.Name, Percent = f.Percent,
                 IsPermanent = true, Key = f.Key, SortOrder = i,
+            }));
+
+            db.DiscountPresets.AddRange(DiscountPercents.Select((p, i) => new DiscountPreset
+            {
+                Id = Guid.NewGuid(), BusinessId = BusinessId, Percent = p, SortOrder = i,
             }));
 
             db.ProductAdditionTypes.AddRange(AdditionTypes.Select((t, i) => new ProductAdditionType

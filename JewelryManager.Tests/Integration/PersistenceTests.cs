@@ -79,6 +79,7 @@ public class PersistenceTests(PostgresFixture pg)
                 new FeeItemDto("קבועות", 17, true, FeeKeys.FixedExpenses),
             ],
             ProductAdditionTypes = [new("אבן", false), new("אחר", true)],
+            DiscountPresets = [20, 5, 12.5m],
             PricingAdditions =
             [
                 new PricingAdditionDto("אריזה", 1, [new("קופסה", 8), new("שקית", 3)]),
@@ -102,6 +103,7 @@ public class PersistenceTests(PostgresFixture pg)
         Assert.Equal(["קופסה", "שקית"], read.PricingAdditions[0].Items.Select(i => i.Name));
         Assert.Empty(read.PricingAdditions[1].Items);
         Assert.Equal(["ניקוי", "יציקה", "ליטוש"], read.PreparationStages);
+        Assert.Equal([20m, 5m, 12.5m], read.DiscountPresets);
 
         // Not a blob: the data is genuinely in separate tables.
         await using var db = pg.NewDb();
@@ -161,6 +163,19 @@ public class PersistenceTests(PostgresFixture pg)
             s.UpdateSettingsAsync(NoChange with { PreparationStages = ["same", " same "] })));
         await Assert.ThrowsAsync<BadRequestException>(() => WithSettings(pg.BusinessA, s =>
             s.UpdateSettingsAsync(NoChange with { FeesItems = [new("f", 1, null), new("f", 2, null)] })));
+    }
+
+    [Fact]
+    public async Task DiscountPresets_RejectOutOfRangeAndDuplicates()
+    {
+        await SeedSettingsAsync(pg.BusinessA);
+
+        foreach (var bad in new List<decimal>[] { [0], [101], [-5], [10, 10] })
+            await Assert.ThrowsAsync<BadRequestException>(() => WithSettings(pg.BusinessA, s =>
+                s.UpdateSettingsAsync(NoChange with { DiscountPresets = bad })));
+
+        await WithSettings(pg.BusinessA, s => s.UpdateSettingsAsync(NoChange with { DiscountPresets = [] }));
+        Assert.Empty((await WithSettings(pg.BusinessA, s => s.GetSettingsAsync())).Data.DiscountPresets);
     }
 
     [Fact]
@@ -285,6 +300,7 @@ public class PersistenceTests(PostgresFixture pg)
         var seeded = Guid.Parse("00000000-0000-0000-0000-000000000001");
         var read = (await WithSettings(seeded, s => s.GetSettingsAsync())).Data;
         Assert.Equal(5, read.Materials.Count);
+        Assert.Equal([5m, 10m, 15m], read.DiscountPresets);
         Assert.Equal(["אבן", "שיבוץ", "ציפוי", "תוספת עגילים", "תוספת שרשרת", "אחר"], read.ProductAdditionTypes.Select(t => t.Name));
         Assert.True(read.ProductAdditionTypes.Single(t => t.Name == "אחר").AllowsCustomName);
         Assert.Equal(FeeKeys.Required.Order(), read.FeesItems.Select(f => f.Key!).Order());

@@ -45,6 +45,12 @@ public class SettingsService(AppDbContext db, CurrentUserAccessor tenant)
             .Select(t => new ProductAdditionTypeDto(t.Name, t.AllowsCustomName))
             .ToListAsync();
 
+        var discountPresets = await db.DiscountPresets.AsNoTracking()
+            .Where(d => d.BusinessId == businessId)
+            .OrderBy(d => d.SortOrder)
+            .Select(d => d.Percent)
+            .ToListAsync();
+
         var data = new SettingsDataResponse(
             Materials: materials.ToDictionary(
                 m => m.Name,
@@ -57,7 +63,8 @@ public class SettingsService(AppDbContext db, CurrentUserAccessor tenant)
             FeesItems: fees.Select(f => new FeeItemDto(f.Name, f.Percent, f.IsPermanent, f.Key)).ToList(),
             ProfitFloorPercent: settings.ProfitFloorPercent,
             PreparationStages: stages,
-            ProductAdditionTypes: additionTypes);
+            ProductAdditionTypes: additionTypes,
+            DiscountPresets: discountPresets);
 
         return new SettingsResponse(settings.Id, settings.BusinessId, data, settings.UpdatedAt);
     }
@@ -114,6 +121,15 @@ public class SettingsService(AppDbContext db, CurrentUserAccessor tenant)
             }));
         }
 
+        if (dto.DiscountPresets is not null)
+        {
+            await db.DiscountPresets.Where(d => d.BusinessId == businessId).ExecuteDeleteAsync();
+            db.DiscountPresets.AddRange(dto.DiscountPresets.Select((percent, i) => new DiscountPreset
+            {
+                Id = Guid.NewGuid(), BusinessId = businessId, Percent = percent, SortOrder = i,
+            }));
+        }
+
         if (dto.PricingAdditions is not null)
         {
             // Deleting a category cascades to its items in the database.
@@ -153,6 +169,10 @@ public class SettingsService(AppDbContext db, CurrentUserAccessor tenant)
         if (HasDuplicates(dto.ProductAdditionTypes?.Select(t => t.Name)))
             throw new BadRequestException("Addition names must be unique");
         RejectInvalidFeeKeys(dto.FeesItems);
+        if (dto.DiscountPresets?.Any(p => p <= 0 || p > 100) == true)
+            throw new BadRequestException("Discount percentages must be between 0.01 and 100");
+        if (dto.DiscountPresets is not null && dto.DiscountPresets.Distinct().Count() != dto.DiscountPresets.Count)
+            throw new BadRequestException("Discount percentages must be unique");
         if (HasDuplicates(dto.PricingAdditions?.Select(c => c.Name)))
             throw new BadRequestException("Category names must be unique");
         if (dto.PricingAdditions?.Any(c => HasDuplicates(c.Items.Select(i => i.Name))) == true)

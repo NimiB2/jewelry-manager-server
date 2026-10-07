@@ -8,6 +8,7 @@ public record SettingsDataResponse(
     List<FeeItemDto> FeesItems,
     decimal ProfitFloorPercent,
     List<string> PreparationStages,
-    List<ProductAdditionTypeDto> ProductAdditionTypes);
+    List<ProductAdditionTypeDto> ProductAdditionTypes,
+    List<decimal> DiscountPresets);
 
 public record SettingsResponse(Guid Id, Guid BusinessId, SettingsDataResponse Data, DateTime UpdatedAt);

@@ -39,5 +39,7 @@ public record UpdateSettingsDto(
     List<FeeItemDto>? FeesItems,
     [Range(0, 1_000_000)] decimal? ProfitFloorPercent,
     List<string>? PreparationStages,
-    List<ProductAdditionTypeDto>? ProductAdditionTypes = null
+    List<ProductAdditionTypeDto>? ProductAdditionTypes = null,
+    // Quick-pick discount percentages, each between 0.01 and 100.
+    List<decimal>? DiscountPresets = null
 );

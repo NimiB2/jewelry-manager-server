@@ -20,6 +20,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<PricingAdditionItem> PricingAdditionItems => Set<PricingAdditionItem>();
     public DbSet<PreparationStage> PreparationStages => Set<PreparationStage>();
     public DbSet<ProductAdditionType> ProductAdditionTypes => Set<ProductAdditionType>();
+    public DbSet<DiscountPreset> DiscountPresets => Set<DiscountPreset>();
     public DbSet<Product> Products => Set<Product>();
     public DbSet<ProductCollection> ProductCollections => Set<ProductCollection>();
     public DbSet<ProductAddition> ProductAdditions => Set<ProductAddition>();
@@ -90,6 +91,13 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(i => i.Price).HasPrecision(18, 4);
             e.HasOne(i => i.Category).WithMany(c => c.Items).HasForeignKey(i => i.CategoryId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne<Business>().WithMany().HasForeignKey(i => i.BusinessId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<DiscountPreset>(e =>
+        {
+            e.HasIndex(d => new { d.BusinessId, d.Percent }).IsUnique();
+            e.Property(d => d.Percent).HasPrecision(5, 2);
+            e.HasOne<Business>().WithMany().HasForeignKey(d => d.BusinessId).OnDelete(DeleteBehavior.Cascade);
         });
 
         b.Entity<ProductAdditionType>(e =>
