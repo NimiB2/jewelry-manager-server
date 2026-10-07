@@ -107,7 +107,14 @@ public class PricingService(AppDbContext db, CurrentUserAccessor tenant)
             RecommendedPrice: Money(r.FinalPriceInclVat),
             CardFeeCost: Money(r.CardFeeCost),
             Profit: Money(r.PricingProfit),
-            ProfitRate: Math.Round((decimal)r.ProfitRate, 4));
+            ProfitRate: Math.Round((decimal)r.ProfitRate, 4),
+            Weight: weight,
+            PricePerGram: m.PricePerGram,
+            LaborHourRate: s.LaborHourRate,
+            FixedExpenseRate: s.FixedExpenseRate,
+            ProfitMultiplier: m.ProfitMultiplier,
+            CardFeeRate: s.CardFeeRate,
+            VatRate: s.VatRate);
     }
 
     private static decimal Money(double value) => Math.Round((decimal)value, 2);

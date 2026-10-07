@@ -13,7 +13,15 @@ public record PriceBreakdown(
     decimal RecommendedPrice,
     decimal CardFeeCost,
     decimal Profit,
-    decimal ProfitRate);
+    decimal ProfitRate,
+    // The inputs behind the numbers, so the UI can show each formula with its real values.
+    decimal Weight,
+    decimal PricePerGram,
+    decimal LaborHourRate,
+    decimal FixedExpenseRate,
+    decimal ProfitMultiplier,
+    decimal CardFeeRate,
+    decimal VatRate);
 
 /// <summary>The few settings the client needs to simulate discounts against the profit floor.</summary>
 public record PricingMeta(decimal VatRate, decimal CardFeeRate, decimal ProfitFloorPercent);
