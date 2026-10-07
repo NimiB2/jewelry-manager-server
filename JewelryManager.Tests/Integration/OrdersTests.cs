@@ -182,6 +182,26 @@ public class OrdersTests(PostgresFixture pg)
     }
 
     [Fact]
+    public async Task LineNote_IsSavedOnCreate_CanBeEditedAndCleared_AndSurvivesOtherEdits()
+    {
+        await SetupAsync();
+        var product = await NewProductAsync("הערה לפריט");
+
+        var created = await WithOrders(Business, s => s.CreateOrderAsync(new SaveOrderDto(
+            "דנה", Today, null, [new OrderItemInputDto(null, product.Id, 1, null, "  חריטה: לנצח  ")], null)));
+        var line = Assert.Single(created.Items);
+        Assert.Equal("חריטה: לנצח", line.Note);
+
+        var edited = await WithOrders(Business, s => s.UpdateOrderAsync(created.Id, new SaveOrderDto(
+            "דנה", Today, null, [new OrderItemInputDto(line.Id, null, 2, null, "מידה 14")], null)));
+        Assert.Equal("מידה 14", Assert.Single(edited.Items).Note);
+
+        var cleared = await WithOrders(Business, s => s.UpdateOrderAsync(created.Id, new SaveOrderDto(
+            "דנה", Today, null, [new OrderItemInputDto(line.Id, null, 2, null, "   ")], null)));
+        Assert.Null(Assert.Single(cleared.Items).Note);
+    }
+
+    [Fact]
     public async Task Update_KeepsExistingLinesFrozen_AddsAndRemovesLines_AndRecalculates()
     {
         await SetupAsync();

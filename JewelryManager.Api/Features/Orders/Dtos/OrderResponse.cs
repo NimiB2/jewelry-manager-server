@@ -11,7 +11,8 @@ public record OrderItemResponse(
     decimal UnitPrice,
     int Quantity,
     decimal LineTotal,
-    decimal WorkHours);
+    decimal WorkHours,
+    string? Note);
 
 public record OrderResponse(
     Guid Id,

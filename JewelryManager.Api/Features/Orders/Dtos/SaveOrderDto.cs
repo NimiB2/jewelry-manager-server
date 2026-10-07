@@ -20,7 +20,9 @@ public record OrderItemInputDto(
     Guid? ProductId,
     [Range(1, 1_000)] int Quantity,
     // Null = the product's current site price.
-    [Range(0, 100_000_000)] decimal? UnitPrice);
+    [Range(0, 100_000_000)] decimal? UnitPrice,
+    // A free note about this item; empty clears it.
+    [MaxLength(500)] string? Note = null);
 
 public record OrderDiscountDto(
     DiscountMode Mode,

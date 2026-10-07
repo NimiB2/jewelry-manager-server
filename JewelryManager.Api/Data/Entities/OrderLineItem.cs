@@ -21,5 +21,8 @@ public class OrderLineItem
     // Work hours for one piece when the order was made, for the profit calculation later.
     public decimal WorkHours { get; set; }
 
+    // A free note about this item (engraving text, size, a request...).
+    public string? Note { get; set; }
+
     public int SortOrder { get; set; }
 }

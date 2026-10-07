@@ -123,6 +123,7 @@ public class OrdersService(AppDbContext db, CurrentUserAccessor tenant)
                 throw new BadRequestException("Order line not found");
 
             line.Quantity = input.Quantity;
+            line.Note = CleanNote(input.Note);
             if (input.UnitPrice is { } price) line.UnitPrice = Math.Round(price, 2);
             line.SortOrder = index;
             kept.Add(line);
@@ -243,6 +244,8 @@ public class OrdersService(AppDbContext db, CurrentUserAccessor tenant)
         await db.SaveChangesAsync();
     }
 
+    private static string? CleanNote(string? note) => string.IsNullOrWhiteSpace(note) ? null : note.Trim();
+
     private static void ApplyDetails(Order order, SaveOrderDto dto)
     {
         order.Date = dto.Date;
@@ -298,6 +301,7 @@ public class OrdersService(AppDbContext db, CurrentUserAccessor tenant)
                 Name = product.Name, Type = product.Type, Material = product.Material,
                 UnitPrice = Math.Round(input.UnitPrice ?? product.SitePrice, 2),
                 Quantity = input.Quantity,
+                Note = CleanNote(input.Note),
                 WorkHours = settings.MaterialHours.GetValueOrDefault(product.Material) + product.AdditionalWorkHours,
                 // Position in the request, so the order of the lines is the order she arranged.
                 SortOrder = positions?[i] ?? i,
@@ -376,7 +380,7 @@ public class OrdersService(AppDbContext db, CurrentUserAccessor tenant)
             o.Items.OrderBy(i => i.SortOrder)
                 .Select(i => new OrderItemResponse(
                     i.Id, i.ProductId, i.Name, i.Type, i.Material, i.UnitPrice, i.Quantity,
-                    Math.Round(i.UnitPrice * i.Quantity, 2), i.WorkHours))
+                    Math.Round(i.UnitPrice * i.Quantity, 2), i.WorkHours, i.Note))
                 .ToList());
     }
 
