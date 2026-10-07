@@ -28,8 +28,11 @@ builder.Services.AddOpenApi();
 // ── Database ──────────────────────────────────────────────────────────────────
 // Registers AppDbContext as a scoped service (one instance per HTTP request).
 // Npgsql is the PostgreSQL provider for EF Core.
+var connectionString = builder.Configuration.GetConnectionString("Default")
+    ?? throw new InvalidOperationException("ConnectionStrings:Default is not configured.");
+
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
+    options.UseNpgsql(connectionString));
 
 // ── Firebase ──────────────────────────────────────────────────────────────────
 // Initialize the Firebase Admin SDK once (singleton for the app lifetime).
