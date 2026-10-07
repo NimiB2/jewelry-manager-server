@@ -42,13 +42,14 @@ public class OrdersService(AppDbContext db, CurrentUserAccessor tenant)
                 : query.Where(o => o.Customer != null && EF.Functions.ILike(o.Customer, pattern, "\\"));
         }
 
+        var testPrefix = await GetTestPrefixAsync();
         var orders = await query
             .OrderByDescending(o => o.Date)
             .ThenByDescending(o => o.Number)
             .ToListAsync();
 
         return new OrdersListResponse(
-            orders.Select(ToResponse).ToList(),
+            orders.Select(o => ToResponse(o, testPrefix)).ToList(),
             new OrdersSummary(orders.Count, orders.Sum(o => o.FinalAmount)));
     }
 
@@ -65,7 +66,7 @@ public class OrdersService(AppDbContext db, CurrentUserAccessor tenant)
     }
 
     public async Task<OrderResponse> GetOrderAsync(Guid id) =>
-        ToResponse(await FindOrThrowAsync(id, asNoTracking: true));
+        ToResponse(await FindOrThrowAsync(id, asNoTracking: true), await GetTestPrefixAsync());
 
     public async Task<OrderResponse> CreateOrderAsync(SaveOrderDto dto)
     {
@@ -367,12 +368,23 @@ public class OrdersService(AppDbContext db, CurrentUserAccessor tenant)
             ?? throw new NotFoundException("Order not found");
     }
 
-    private static OrderResponse ToResponse(Order o)
+    private async Task<string?> GetTestPrefixAsync()
+    {
+        var businessId = tenant.GetBusinessId();
+        return await db.Settings.AsNoTracking()
+            .Where(s => s.BusinessId == businessId)
+            .Select(s => s.TestOrderPrefix)
+            .FirstOrDefaultAsync();
+    }
+
+    // A demo order is recognised by its customer name (decision 8 in the spec), so renaming a customer
+    // to or from the test prefix changes the label immediately; the order number never changes.
+    private static OrderResponse ToResponse(Order o, string? testPrefix)
     {
         var discount = o.Amount - o.FinalAmount;
 
         return new OrderResponse(
-            o.Id, o.Number, o.Number < RealSeriesStart, o.Date, o.Customer,
+            o.Id, o.Number, IsTestCustomer(o.Customer, testPrefix), o.Date, o.Customer,
             o.Amount, o.FinalAmount, o.HasDiscount, discount,
             o.Amount > 0 ? Math.Round(discount / o.Amount * 100, 2) : 0,
             o.DiscountReason, o.Source, o.ReceiptSent, o.Status, o.PreparationStage, o.Notes,

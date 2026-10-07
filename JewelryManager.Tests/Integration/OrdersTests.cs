@@ -129,6 +129,27 @@ public class OrdersTests(PostgresFixture pg)
     }
 
     [Fact]
+    public async Task DemoLabel_FollowsTheCustomerName_WhenRenamed_WhileTheNumberStays()
+    {
+        await SetupAsync();
+        var product = await NewProductAsync("שינוי שם");
+        var order = await WithOrders(Business, s => s.CreateOrderAsync(Order(product.Id, customer: "דנה")));
+        Assert.False(order.IsTest);
+
+        var lineId = order.Items.Single().Id;
+        SaveOrderDto Rename(string name) => new(name, Today, null, [new OrderItemInputDto(lineId, null, 1, null)], null);
+
+        var demo = await WithOrders(Business, s => s.UpdateOrderAsync(order.Id, Rename("בדיקה - דנה")));
+        Assert.True(demo.IsTest);
+        Assert.Equal(order.Number, demo.Number);
+        Assert.True((await WithOrders(Business, s => s.GetOrdersAsync("all", order.Number.ToString(), null, null))).Orders
+            .Single(o => o.Id == order.Id).IsTest);
+
+        var real = await WithOrders(Business, s => s.UpdateOrderAsync(order.Id, Rename("דנה כהן")));
+        Assert.False(real.IsTest);
+    }
+
+    [Fact]
     public async Task Numbers_ConcurrentCreatesGetDistinctNumbers()
     {
         await SetupAsync();
