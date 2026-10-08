@@ -98,6 +98,7 @@ public class OrdersService(AppDbContext db, CurrentUserAccessor tenant)
         ApplyAmounts(order, order.Items, dto.Discount);
 
         db.Orders.Add(order);
+        await SyncBooksAsync(order, order.Items, isNew: true);
         await db.SaveChangesAsync();
         await tx.CommitAsync();
         db.ChangeTracker.Clear();
@@ -144,8 +145,11 @@ public class OrdersService(AppDbContext db, CurrentUserAccessor tenant)
         }
 
         ApplyDetails(order, dto);
-        ApplyAmounts(order, kept.Concat(fresh.Select(f => f.Line)).ToList(), dto.Discount);
+        var finalLines = kept.Concat(fresh.Select(f => f.Line)).ToList();
+        ApplyAmounts(order, finalLines, dto.Discount);
         order.UpdatedAt = DateTime.UtcNow;
+
+        await SyncBooksAsync(order, finalLines, isNew: false);
 
         await db.SaveChangesAsync();
         db.ChangeTracker.Clear();
@@ -170,7 +174,7 @@ public class OrdersService(AppDbContext db, CurrentUserAccessor tenant)
             order.CompletedDate = order.IsCompleted ? DateTime.UtcNow : null;
             order.UpdatedAt = DateTime.UtcNow;
 
-            await SyncIncomeAsync(order);
+            await SyncTaskStatusAsync(order);
             await db.SaveChangesAsync();
         }
 
@@ -246,31 +250,87 @@ public class OrdersService(AppDbContext db, CurrentUserAccessor tenant)
         order.IsDeleted = true;
         order.UpdatedAt = DateTime.UtcNow;
 
-        // A deleted order disappears from the app, so its income leaves the books too.
-        await RemoveIncomeAsync(order.Id);
+        // A deleted order disappears from the app, so its income and its automatic task go with it.
+        await RemoveBooksAsync(order.Id);
         await db.SaveChangesAsync();
     }
 
-    // A completed order books its income (a frozen snapshot); reopening the order takes it back out.
-    // Demo orders never reach the books.
-    private async Task SyncIncomeAsync(Order order)
+    // A new order adds an income record and a task; later edits keep both in step, and a completed
+    // order is locked, so its income is frozen. Demo orders never reach the books.
+    private async Task SyncBooksAsync(Order order, IEnumerable<OrderLineItem> lines, bool isNew)
     {
-        if (!order.IsCompleted)
+        var businessId = tenant.GetBusinessId();
+        var isDemo = IsTestCustomer(order.Customer, await GetTestPrefixAsync());
+
+        var income = isNew ? null : await db.Incomes.FirstOrDefaultAsync(i => i.BusinessId == businessId && i.OrderId == order.Id);
+        var task = isNew ? null : await db.Tasks.FirstOrDefaultAsync(t => t.BusinessId == businessId && t.OrderId == order.Id && t.IsAutomatic);
+
+        if (isDemo)
         {
-            await RemoveIncomeAsync(order.Id);
+            if (income is not null) db.Incomes.Remove(income);
+            if (task is not null) db.Tasks.Remove(task);
             return;
         }
 
-        if (await db.Incomes.AnyAsync(i => i.OrderId == order.Id)) return;
-        if (IsTestCustomer(order.Customer, await GetTestPrefixAsync())) return;
+        if (income is null)
+        {
+            db.Incomes.Add(OrderIncomeFactory.Create(order, lines));
 
-        db.Incomes.Add(OrderIncomeFactory.Create(order));
+            // Only an order that was not on the books yet gets a task, so it never gets a second one.
+            if (task is null) db.Tasks.Add(NewOrderTask(order, lines));
+            return;
+        }
+
+        OrderIncomeFactory.Apply(income, order, lines);
+        if (task is not null)
+        {
+            task.Title = TaskTitle(order);
+            task.Content = TaskContent(lines);
+            task.UpdatedAt = DateTime.UtcNow;
+        }
     }
 
-    private async Task RemoveIncomeAsync(Guid orderId)
+    private async Task SyncTaskStatusAsync(Order order)
+    {
+        var businessId = tenant.GetBusinessId();
+        var task = await db.Tasks.FirstOrDefaultAsync(t => t.BusinessId == businessId && t.OrderId == order.Id && t.IsAutomatic);
+        if (task is null) return;
+
+        task.Status = order.Status switch
+        {
+            OrderStatus.New => WorkTaskStatus.New,
+            OrderStatus.Completed => WorkTaskStatus.Completed,
+            _ => WorkTaskStatus.InProgress,
+        };
+        task.CompletedAt = task.Status == WorkTaskStatus.Completed ? task.CompletedAt ?? DateTime.UtcNow : null;
+        task.UpdatedAt = DateTime.UtcNow;
+    }
+
+    private async Task RemoveBooksAsync(Guid orderId)
     {
         var businessId = tenant.GetBusinessId();
         db.Incomes.RemoveRange(await db.Incomes.Where(i => i.BusinessId == businessId && i.OrderId == orderId).ToListAsync());
+        db.Tasks.RemoveRange(await db.Tasks.Where(t => t.BusinessId == businessId && t.OrderId == orderId && t.IsAutomatic).ToListAsync());
+    }
+
+    private static TaskItem NewOrderTask(Order order, IEnumerable<OrderLineItem> lines)
+    {
+        var now = DateTime.UtcNow;
+        return new TaskItem
+        {
+            Id = Guid.NewGuid(), BusinessId = order.BusinessId, OrderId = order.Id, IsAutomatic = true,
+            Title = TaskTitle(order), Content = TaskContent(lines), Status = WorkTaskStatus.New,
+            CreatedAt = now, UpdatedAt = now,
+        };
+    }
+
+    private static string TaskTitle(Order order) =>
+        string.IsNullOrWhiteSpace(order.Customer) ? $"הזמנה {order.Number}" : $"הזמנה {order.Number} · {order.Customer}";
+
+    private static string? TaskContent(IEnumerable<OrderLineItem> lines)
+    {
+        var text = string.Join(", ", lines.OrderBy(l => l.SortOrder).Select(l => $"{l.Name} × {l.Quantity}"));
+        return text.Length == 0 ? null : text.Length > 4_000 ? text[..4_000] : text;
     }
 
     private static string? CleanNote(string? note) => string.IsNullOrWhiteSpace(note) ? null : note.Trim();

@@ -43,5 +43,9 @@ public record UpdateSettingsDto(
     // Quick-pick discount percentages, each between 0.01 and 100.
     List<decimal>? DiscountPresets = null,
     // A customer name starting with this marks a test order; empty turns the feature off.
-    [MaxLength(50)] string? TestOrderPrefix = null
+    [MaxLength(50)] string? TestOrderPrefix = null,
+    // The expense types she picks from when recording an expense.
+    List<string>? ExpenseTypes = null,
+    // The suppliers she picks from when recording an expense.
+    List<string>? ExpenseSuppliers = null
 );

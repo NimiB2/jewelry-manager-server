@@ -7,6 +7,7 @@ using JewelryManager.Api.Features.Collections;
 using JewelryManager.Api.Features.Expenses;
 using JewelryManager.Api.Features.Finances;
 using JewelryManager.Api.Features.Incomes;
+using JewelryManager.Api.Features.Invoices;
 using JewelryManager.Api.Features.Orders;
 using JewelryManager.Api.Features.Pricing;
 using JewelryManager.Api.Features.Products;
@@ -79,6 +80,16 @@ builder.Services.AddScoped<ExpensesService>();
 builder.Services.AddScoped<IncomesService>();
 builder.Services.AddScoped<FinancesService>();
 builder.Services.AddScoped<TasksService>();
+builder.Services.AddScoped<InvoicesService>();
+builder.Services.AddScoped<InvoiceReadingService>();
+
+// No AI reader is connected yet; a real one replaces this registration and the form fills itself.
+builder.Services.AddSingleton<IInvoiceReader, NullInvoiceReader>();
+
+// Invoice files stay on the disk of the server, outside the web root, until cloud storage is chosen.
+var invoicesPath = builder.Configuration["Invoices:StoragePath"]
+    ?? Path.Combine(builder.Environment.ContentRootPath, "App_Data", "invoices");
+builder.Services.AddSingleton<IInvoiceStorage>(new LocalInvoiceStorage(invoicesPath));
 builder.Services.AddScoped<UsersService>();
 builder.Services.AddScoped<DbSeeder>();
 

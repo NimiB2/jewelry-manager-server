@@ -12,6 +12,8 @@ public class RecurringExpense
     public ExpenseCategory Category { get; set; }
     public string Description { get; set; } = "";
     public decimal Amount { get; set; }
+    public string? TypeName { get; set; }
+    public string? Supplier { get; set; }
 
     public int EveryMonths { get; set; }
 

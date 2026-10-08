@@ -44,6 +44,8 @@ public class PostgresFixture : IAsyncLifetime
     public Guid BusinessD { get; } = Guid.NewGuid();
     public Guid BusinessE { get; } = Guid.NewGuid();
     public Guid BusinessF { get; } = Guid.NewGuid();
+    public Guid BusinessG { get; } = Guid.NewGuid();
+    public Guid BusinessH { get; } = Guid.NewGuid();
 
     public async Task InitializeAsync()
     {
@@ -58,7 +60,9 @@ public class PostgresFixture : IAsyncLifetime
             new Business { Id = BusinessC, Name = "C", CreatedAt = now, UpdatedAt = now },
             new Business { Id = BusinessD, Name = "D", CreatedAt = now, UpdatedAt = now },
             new Business { Id = BusinessE, Name = "E", CreatedAt = now, UpdatedAt = now },
-            new Business { Id = BusinessF, Name = "F", CreatedAt = now, UpdatedAt = now });
+            new Business { Id = BusinessF, Name = "F", CreatedAt = now, UpdatedAt = now },
+            new Business { Id = BusinessG, Name = "G", CreatedAt = now, UpdatedAt = now },
+            new Business { Id = BusinessH, Name = "H", CreatedAt = now, UpdatedAt = now });
         await db.SaveChangesAsync();
     }
 

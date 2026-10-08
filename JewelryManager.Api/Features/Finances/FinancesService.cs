@@ -15,7 +15,7 @@ namespace JewelryManager.Api.Features.Finances;
 /// <summary>The combined view: income and expenses in one list, with the period's totals and a CSV export.</summary>
 public class FinancesService(AppDbContext db, CurrentUserAccessor tenant, ExpensesService expenses)
 {
-    public async Task<FinanceListResponse> GetFinancesAsync(DateOnly? from, DateOnly? to, string? type, string? receipt)
+    public async Task<FinanceListResponse> GetFinancesAsync(DateOnly? from, DateOnly? to, string? type, string? receipt, bool includeProjected = false)
     {
         await PrepareBooksAsync();
         var businessId = tenant.GetBusinessId();
@@ -28,7 +28,16 @@ public class FinancesService(AppDbContext db, CurrentUserAccessor tenant, Expens
             allInPeriod.Sum(i => i.Kind == FinanceKind.Income ? i.Amount : -i.Amount),
             allInPeriod.Count(i => i.Kind == FinanceKind.Expense && !i.HasReceipt));
 
-        return new FinanceListResponse(Filter(allInPeriod, type, receipt), summary);
+        var items = Filter(allInPeriod, type, receipt);
+
+        // Coming occurrences are shown for orientation only: they are not money spent yet, so they stay out of the totals.
+        if (includeProjected && (receipt is null or "" or "all") && type != "income")
+        {
+            items.AddRange(await LoadProjectedAsync(businessId, from, to));
+            items = items.OrderByDescending(i => i.Date).ThenBy(i => i.Description).ToList();
+        }
+
+        return new FinanceListResponse(items, summary);
     }
 
     public async Task<List<int>> GetYearsAsync()
@@ -49,13 +58,15 @@ public class FinancesService(AppDbContext db, CurrentUserAccessor tenant, Expens
         var rows = (await GetFinancesAsync(from, to, type, receipt)).Items;
 
         var csv = new StringBuilder();
-        csv.AppendLine("תאריך,סוג,קטגוריה,תיאור,סכום,קבלה");
+        csv.AppendLine("תאריך,סוג,קטגוריה,סוג הוצאה,ספק,תיאור,סכום,חשבונית");
         foreach (var row in rows.OrderBy(r => r.Date))
         {
             csv.AppendLine(string.Join(',',
                 row.Date.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture),
                 row.Kind == FinanceKind.Income ? "הכנסה" : "הוצאה",
                 CategoryLabel(row),
+                Escape(row.TypeName ?? ""),
+                Escape(row.Supplier ?? ""),
                 Escape(row.Description),
                 (row.Kind == FinanceKind.Income ? row.Amount : -row.Amount).ToString("0.00", CultureInfo.InvariantCulture),
                 row.Kind == FinanceKind.Expense ? (row.HasReceipt ? "יש" : "אין") : ""));
@@ -74,7 +85,7 @@ public class FinancesService(AppDbContext db, CurrentUserAccessor tenant, Expens
     }
 
     /// <summary>
-    /// Orders completed before finances existed (or whose income row went missing) get their income here.
+    /// Orders created before finances existed (or whose income row went missing) get their income here.
     /// Demo orders never count, so test data cannot leak into the books.
     /// </summary>
     private async Task EnsureIncomeForCompletedOrdersAsync()
@@ -82,8 +93,7 @@ public class FinancesService(AppDbContext db, CurrentUserAccessor tenant, Expens
         var businessId = tenant.GetBusinessId();
 
         var missing = await db.Orders.AsNoTracking().Include(o => o.Items)
-            .Where(o => o.BusinessId == businessId && !o.IsDeleted && o.Status == OrderStatus.Completed
-                && !db.Incomes.Any(i => i.OrderId == o.Id))
+            .Where(o => o.BusinessId == businessId && !o.IsDeleted && !db.Incomes.Any(i => i.OrderId == o.Id))
             .ToListAsync();
         if (missing.Count == 0) return;
 
@@ -91,7 +101,7 @@ public class FinancesService(AppDbContext db, CurrentUserAccessor tenant, Expens
             .Where(s => s.BusinessId == businessId).Select(s => s.TestOrderPrefix).FirstOrDefaultAsync();
 
         foreach (var order in missing.Where(o => !OrdersService.IsTestCustomer(o.Customer, testPrefix)))
-            db.Incomes.Add(OrderIncomeFactory.Create(order));
+            db.Incomes.Add(OrderIncomeFactory.Create(order, order.Items));
 
         try
         {
@@ -107,35 +117,90 @@ public class FinancesService(AppDbContext db, CurrentUserAccessor tenant, Expens
 
     private async Task<List<FinanceItem>> LoadAsync(Guid businessId, DateOnly? from, DateOnly? to)
     {
+        var expenseQuery = db.Expenses.AsNoTracking().Where(e => e.BusinessId == businessId);
+        var incomeQuery = db.Incomes.AsNoTracking().Where(i => i.BusinessId == businessId);
+        if (from is { } f)
+        {
+            expenseQuery = expenseQuery.Where(e => e.Date >= f);
+            incomeQuery = incomeQuery.Where(i => i.Date >= f);
+        }
+
+        if (to is { } t)
+        {
+            expenseQuery = expenseQuery.Where(e => e.Date <= t);
+            incomeQuery = incomeQuery.Where(i => i.Date <= t);
+        }
+
+        var expenseRows = await expenseQuery.ToListAsync();
+        var incomeRows = await incomeQuery.ToListAsync();
+
+        var seriesIds = expenseRows.Where(e => e.SeriesId != null).Select(e => e.SeriesId!.Value).Distinct().ToList();
+        var every = await db.RecurringExpenses.AsNoTracking()
+            .Where(s => s.BusinessId == businessId && seriesIds.Contains(s.Id))
+            .ToDictionaryAsync(s => s.Id, s => s.EveryMonths);
+
+        // Both an expense made for an order and an income that came from one show the order's number.
+        var orderIds = expenseRows.Where(e => e.OrderId != null).Select(e => e.OrderId!.Value)
+            .Concat(incomeRows.Where(i => i.OrderId != null).Select(i => i.OrderId!.Value))
+            .Distinct().ToList();
+        var orderNumbers = await db.Orders.AsNoTracking()
+            .Where(o => o.BusinessId == businessId && orderIds.Contains(o.Id))
+            .ToDictionaryAsync(o => o.Id, o => o.Number);
+
+        int? NumberOf(Guid? orderId) => orderId is { } id && orderNumbers.TryGetValue(id, out var n) ? n : null;
+
         var items = new List<FinanceItem>();
-
-        {
-            var query = db.Expenses.AsNoTracking().Where(e => e.BusinessId == businessId);
-            if (from is { } f) query = query.Where(e => e.Date >= f);
-            if (to is { } t) query = query.Where(e => e.Date <= t);
-
-            var rows = await query.ToListAsync();
-            var seriesIds = rows.Where(e => e.SeriesId != null).Select(e => e.SeriesId!.Value).Distinct().ToList();
-            var every = await db.RecurringExpenses.AsNoTracking()
-                .Where(s => s.BusinessId == businessId && seriesIds.Contains(s.Id))
-                .ToDictionaryAsync(s => s.Id, s => s.EveryMonths);
-
-            items.AddRange(rows.Select(e => new FinanceItem(
-                FinanceKind.Expense, e.Id, e.Date, e.Description, e.Amount, e.Category, null, null,
-                e.HasReceipt, e.SeriesId, e.SeriesId is { } id && every.TryGetValue(id, out var m) ? m : null)));
-        }
-
-        {
-            var query = db.Incomes.AsNoTracking().Where(i => i.BusinessId == businessId);
-            if (from is { } f) query = query.Where(i => i.Date >= f);
-            if (to is { } t) query = query.Where(i => i.Date <= t);
-
-            items.AddRange((await query.ToListAsync()).Select(i => new FinanceItem(
-                FinanceKind.Income, i.Id, i.Date, i.Description, i.Amount, null, i.Category, i.OrderId,
-                false, null, null)));
-        }
+        items.AddRange(expenseRows.Select(e => new FinanceItem(
+            FinanceKind.Expense, e.Id, e.Date, e.Description, e.Amount, e.Category, null, e.OrderId,
+            e.HasReceipt, e.SeriesId, e.SeriesId is { } sid && every.TryGetValue(sid, out var m) ? m : null,
+            e.TypeName, NumberOf(e.OrderId), e.InvoiceStoredName != null, Supplier: e.Supplier, Notes: e.Notes)));
+        items.AddRange(incomeRows.Select(i => new FinanceItem(
+            FinanceKind.Income, i.Id, i.Date, i.Description, i.Amount, null, i.Category, i.OrderId,
+            false, null, null, null, NumberOf(i.OrderId), false)));
 
         return items.OrderByDescending(i => i.Date).ThenBy(i => i.Description).ToList();
+    }
+
+    /// <summary>
+    /// The occurrences of recurring expenses that have not happened yet (up to a year ahead), so a coming
+    /// month shows what will be charged. They are computed, never stored; generation creates the real
+    /// rows when their date arrives.
+    /// </summary>
+    private async Task<List<FinanceItem>> LoadProjectedAsync(Guid businessId, DateOnly? from, DateOnly? to)
+    {
+        var today = IsraelToday();
+        var horizon = today.AddMonths(12);
+        var upTo = to is { } t && t < horizon ? t : horizon;
+        if (upTo <= today) return [];
+
+        var series = await db.RecurringExpenses.AsNoTracking()
+            .Where(s => s.BusinessId == businessId && s.IsActive)
+            .ToListAsync();
+        if (series.Count == 0) return [];
+
+        // Tapping a coming occurrence opens the latest real one of its series, where the series is managed.
+        var seriesIds = series.Select(s => s.Id).ToList();
+        var latest = (await db.Expenses.AsNoTracking()
+                .Where(e => e.BusinessId == businessId && e.SeriesId != null && seriesIds.Contains(e.SeriesId.Value))
+                .Select(e => new { e.Id, e.SeriesId, e.Date })
+                .ToListAsync())
+            .GroupBy(e => e.SeriesId!.Value)
+            .ToDictionary(g => g.Key, g => g.OrderByDescending(e => e.Date).First().Id);
+
+        var items = new List<FinanceItem>();
+        foreach (var s in series.Where(s => latest.ContainsKey(s.Id)))
+        {
+            for (var date = s.NextDate; date <= upTo; date = ExpensesService.AddMonthsKeepingDay(date, s.EveryMonths, s.DayOfMonth))
+            {
+                if (date <= today || (from is { } f && date < f)) continue;
+
+                items.Add(new FinanceItem(
+                    FinanceKind.Expense, latest[s.Id], date, s.Description, s.Amount, s.Category, null, null,
+                    false, s.Id, s.EveryMonths, s.TypeName, null, false, IsProjected: true, Supplier: s.Supplier));
+            }
+        }
+
+        return items;
     }
 
     private static List<FinanceItem> Filter(List<FinanceItem> items, string? type, string? receipt)
@@ -161,7 +226,7 @@ public class FinancesService(AppDbContext db, CurrentUserAccessor tenant, Expens
 
     private static string CategoryLabel(FinanceItem item) => item.Kind == FinanceKind.Income
         ? item.IncomeCategory == IncomeCategory.Sales ? "מכירות" : "אחר"
-        : item.ExpenseCategory == ExpenseCategory.Fixed ? "קבועה" : "משתנה";
+        : item.ExpenseCategory == ExpenseCategory.Fixed ? "קבועה" : "חד פעמית";
 
     // Quotes the cell, and defuses text that Excel would otherwise run as a formula.
     private static string Escape(string value)

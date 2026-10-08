@@ -13,6 +13,9 @@ public class TaskItem
     // Optional: a task can stand alone or hang on an order.
     public Guid? OrderId { get; set; }
 
+    // Created and kept in step by the system when an order is added (it follows the order's status and goes with it).
+    public bool IsAutomatic { get; set; }
+
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public DateTime? CompletedAt { get; set; }

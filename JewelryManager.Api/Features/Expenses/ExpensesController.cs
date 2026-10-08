@@ -7,6 +7,9 @@ namespace JewelryManager.Api.Features.Expenses;
 [Route("expenses")]
 public class ExpensesController(ExpensesService service) : ControllerBase
 {
+    [HttpGet("suppliers")]
+    public Task<List<string>> GetSuppliers() => service.GetSuppliersAsync();
+
     [HttpGet("{id:guid}")]
     public Task<ExpenseResponse> GetExpense(Guid id) => service.GetExpenseAsync(id);
 
@@ -16,11 +19,11 @@ public class ExpensesController(ExpensesService service) : ControllerBase
     [HttpPut("{id:guid}")]
     public Task<ExpenseResponse> UpdateExpense(Guid id, UpdateExpenseDto dto) => service.UpdateExpenseAsync(id, dto);
 
-    /// <param name="wholeSeries">For a recurring expense: delete this and all later occurrences and stop the series.</param>
+    /// <param name="scope">This (default), FromHere or After; the last two only for a recurring expense.</param>
     [HttpDelete("{id:guid}")]
-    public async Task<IActionResult> DeleteExpense(Guid id, bool wholeSeries = false)
+    public async Task<IActionResult> DeleteExpense(Guid id, ExpenseDeleteScope scope = ExpenseDeleteScope.This)
     {
-        await service.DeleteExpenseAsync(id, wholeSeries);
+        await service.DeleteExpenseAsync(id, scope);
         return NoContent();
     }
 }

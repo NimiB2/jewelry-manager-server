@@ -10,6 +10,8 @@ public record SettingsDataResponse(
     List<string> PreparationStages,
     List<ProductAdditionTypeDto> ProductAdditionTypes,
     List<decimal> DiscountPresets,
-    string TestOrderPrefix);
+    string TestOrderPrefix,
+    List<string> ExpenseTypes,
+    List<string> ExpenseSuppliers);
 
 public record SettingsResponse(Guid Id, Guid BusinessId, SettingsDataResponse Data, DateTime UpdatedAt);

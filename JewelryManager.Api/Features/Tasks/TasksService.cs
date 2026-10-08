@@ -51,6 +51,7 @@ public class TasksService(AppDbContext db, CurrentUserAccessor tenant)
     public async Task<TaskResponse> UpdateTaskAsync(Guid id, SaveTaskDto dto)
     {
         var task = await FindOrThrowAsync(id, asNoTracking: false);
+        ThrowIfAutomatic(task);
         await ApplyAsync(task, dto, DateTime.UtcNow);
 
         await db.SaveChangesAsync();
@@ -62,6 +63,7 @@ public class TasksService(AppDbContext db, CurrentUserAccessor tenant)
     public async Task<TaskResponse> UpdateStatusAsync(Guid id, WorkTaskStatus status)
     {
         var task = await FindOrThrowAsync(id, asNoTracking: false);
+        ThrowIfAutomatic(task);
         SetStatus(task, status, DateTime.UtcNow);
 
         await db.SaveChangesAsync();
@@ -73,8 +75,16 @@ public class TasksService(AppDbContext db, CurrentUserAccessor tenant)
     public async Task DeleteTaskAsync(Guid id)
     {
         var task = await FindOrThrowAsync(id, asNoTracking: false);
+        ThrowIfAutomatic(task);
         db.Tasks.Remove(task);
         await db.SaveChangesAsync();
+    }
+
+    // A task made from an order mirrors it: its status, title and life all come from the order.
+    private static void ThrowIfAutomatic(TaskItem task)
+    {
+        if (task.IsAutomatic)
+            throw new BadRequestException("משימה שנוצרה מהזמנה משתנה דרך ההזמנה עצמה");
     }
 
     private async Task ApplyAsync(TaskItem task, SaveTaskDto dto, DateTime now)
@@ -126,6 +136,6 @@ public class TasksService(AppDbContext db, CurrentUserAccessor tenant)
     {
         Order? order = t.OrderId is { } id && orders.TryGetValue(id, out var found) ? found : null;
         return new TaskResponse(
-            t.Id, t.Title, t.Content, t.Status, t.OrderId, order?.Number, order?.Customer, t.CreatedAt, t.CompletedAt);
+            t.Id, t.Title, t.Content, t.Status, t.OrderId, order?.Number, order?.Customer, t.CreatedAt, t.CompletedAt, t.IsAutomatic, order?.Status);
     }
 }

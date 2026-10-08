@@ -21,4 +21,8 @@ public record TaskResponse(
     int? OrderNumber,
     string? OrderCustomer,
     DateTime CreatedAt,
-    DateTime? CompletedAt);
+    DateTime? CompletedAt,
+    // Created by the system for a new order.
+    bool IsAutomatic,
+    // The status of the linked order. For an automatic task this is the status to show: the order is the source.
+    OrderStatus? OrderStatus);

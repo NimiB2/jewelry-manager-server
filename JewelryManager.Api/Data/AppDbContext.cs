@@ -31,6 +31,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<RecurringExpense> RecurringExpenses => Set<RecurringExpense>();
     public DbSet<Income> Incomes => Set<Income>();
     public DbSet<TaskItem> Tasks => Set<TaskItem>();
+    public DbSet<ExpenseType> ExpenseTypes => Set<ExpenseType>();
+    public DbSet<ExpenseSupplier> ExpenseSuppliers => Set<ExpenseSupplier>();
 
     // More DbSets will be added here as features are built.
 
@@ -183,6 +185,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(r => r.Amount).HasPrecision(18, 2);
             e.Property(r => r.Category).HasConversion<string>();
             e.Property(r => r.Description).HasMaxLength(300);
+            e.Property(r => r.TypeName).HasMaxLength(100);
+            e.Property(r => r.Supplier).HasMaxLength(100);
             e.HasOne<Business>().WithMany().HasForeignKey(r => r.BusinessId).OnDelete(DeleteBehavior.Cascade);
         });
 
@@ -193,7 +197,17 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.Amount).HasPrecision(18, 2);
             e.Property(x => x.Category).HasConversion<string>();
             e.Property(x => x.Description).HasMaxLength(300);
+            e.Property(x => x.TypeName).HasMaxLength(100);
+            e.Property(x => x.Supplier).HasMaxLength(100);
+            e.Property(x => x.Notes).HasMaxLength(1000);
+            e.Property(x => x.InvoiceStoredName).HasMaxLength(100);
+            e.Property(x => x.InvoiceFileName).HasMaxLength(260);
+            e.Property(x => x.InvoiceContentType).HasMaxLength(100);
+            e.HasIndex(x => x.OrderId);
             e.HasOne<Business>().WithMany().HasForeignKey(x => x.BusinessId).OnDelete(DeleteBehavior.Cascade);
+
+            // An order is only soft-deleted, but if one is ever removed the expense stays.
+            e.HasOne<Order>().WithMany().HasForeignKey(x => x.OrderId).OnDelete(DeleteBehavior.SetNull);
 
             // Stopping a series must not erase the expenses it already produced.
             e.HasOne<RecurringExpense>().WithMany().HasForeignKey(x => x.SeriesId).OnDelete(DeleteBehavior.SetNull);
@@ -212,6 +226,19 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.Description).HasMaxLength(300);
             e.HasOne<Business>().WithMany().HasForeignKey(x => x.BusinessId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne<Order>().WithMany().HasForeignKey(x => x.OrderId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<ExpenseType>(e =>
+        {
+            e.HasIndex(t => new { t.BusinessId, t.Name }).IsUnique();
+            e.HasOne<Business>().WithMany().HasForeignKey(t => t.BusinessId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<ExpenseSupplier>(e =>
+        {
+            e.HasIndex(s => new { s.BusinessId, s.Name }).IsUnique();
+            e.Property(s => s.Name).HasMaxLength(100);
+            e.HasOne<Business>().WithMany().HasForeignKey(s => s.BusinessId).OnDelete(DeleteBehavior.Cascade);
         });
 
         // ── Tasks ─────────────────────────────────────────────────────────────

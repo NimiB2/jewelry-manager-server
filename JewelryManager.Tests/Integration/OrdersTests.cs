@@ -329,6 +329,77 @@ public class OrdersTests(PostgresFixture pg)
     }
 
     [Fact]
+    public async Task NewOrder_AddsAnIncomeAndATask_ThatFollowTheOrder_AndGoWhenItIsDeleted()
+    {
+        await SetupAsync();
+        var product = await NewProductAsync("סנכרון");
+
+        var order = await WithOrders(Business, s => s.CreateOrderAsync(Order(product.Id, qty: 2)));
+
+        await using (var db = pg.NewDb())
+        {
+            var income = await db.Incomes.SingleAsync(i => i.OrderId == order.Id);
+            Assert.Equal(3000, income.Amount);
+            Assert.Equal(Today, income.Date);
+            var task = await db.Tasks.SingleAsync(t => t.OrderId == order.Id);
+            Assert.True(task.IsAutomatic);
+            Assert.Equal(WorkTaskStatus.New, task.Status);
+            Assert.Contains(order.Number.ToString(), task.Title);
+        }
+
+        // Editing the order moves the income with it.
+        var line = order.Items.Single();
+        await WithOrders(Business, s => s.UpdateOrderAsync(order.Id, new SaveOrderDto(
+            "דנה", Today, null, [new OrderItemInputDto(line.Id, null, 1, null)], null)));
+        await using (var db = pg.NewDb())
+            Assert.Equal(1500, (await db.Incomes.SingleAsync(i => i.OrderId == order.Id)).Amount);
+
+        // The task follows the order's status.
+        await WithOrders(Business, s => s.UpdateStatusAsync(order.Id, OrderStatus.InProgress));
+        await using (var db = pg.NewDb())
+            Assert.Equal(WorkTaskStatus.InProgress, (await db.Tasks.SingleAsync(t => t.OrderId == order.Id)).Status);
+
+        await WithOrders(Business, s => s.SetReceiptSentAsync(order.Id, true));
+        await WithOrders(Business, s => s.UpdateStatusAsync(order.Id, OrderStatus.Completed));
+        await using (var db = pg.NewDb())
+        {
+            var task = await db.Tasks.SingleAsync(t => t.OrderId == order.Id);
+            Assert.Equal(WorkTaskStatus.Completed, task.Status);
+            Assert.NotNull(task.CompletedAt);
+            Assert.Equal(1, await db.Incomes.CountAsync(i => i.OrderId == order.Id));
+        }
+
+        await WithOrders(Business, async s => { await s.DeleteOrderAsync(order.Id); return 0; });
+        await using (var db = pg.NewDb())
+        {
+            Assert.False(await db.Incomes.AnyAsync(i => i.OrderId == order.Id));
+            Assert.False(await db.Tasks.AnyAsync(t => t.OrderId == order.Id));
+        }
+    }
+
+    [Fact]
+    public async Task DemoOrder_AddsNothingToTheBooks_AndRenamingItToARealCustomerAddsThem()
+    {
+        await SetupAsync();
+        var product = await NewProductAsync("דמו");
+
+        var demo = await WithOrders(Business, s => s.CreateOrderAsync(Order(product.Id, customer: "בדיקה דנה")));
+        await using (var db = pg.NewDb())
+        {
+            Assert.False(await db.Incomes.AnyAsync(i => i.OrderId == demo.Id));
+            Assert.False(await db.Tasks.AnyAsync(t => t.OrderId == demo.Id));
+        }
+
+        await WithOrders(Business, s => s.UpdateOrderAsync(demo.Id, new SaveOrderDto(
+            "דנה", Today, null, [new OrderItemInputDto(demo.Items.Single().Id, null, 1, null)], null)));
+        await using (var db = pg.NewDb())
+        {
+            Assert.True(await db.Incomes.AnyAsync(i => i.OrderId == demo.Id));
+            Assert.True(await db.Tasks.AnyAsync(t => t.OrderId == demo.Id && t.IsAutomatic));
+        }
+    }
+
+    [Fact]
     public async Task SoftDelete_HidesTheOrder_ButKeepsTheRow()
     {
         await SetupAsync();

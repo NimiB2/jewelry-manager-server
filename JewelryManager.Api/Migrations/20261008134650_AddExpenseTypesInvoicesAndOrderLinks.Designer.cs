@@ -3,6 +3,7 @@ using System;
 using JewelryManager.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace JewelryManager.Api.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261008134650_AddExpenseTypesInvoicesAndOrderLinks")]
+    partial class AddExpenseTypesInvoicesAndOrderLinks
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -148,19 +151,11 @@ namespace JewelryManager.Api.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
-                    b.Property<string>("Notes")
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
-
                     b.Property<Guid?>("OrderId")
                         .HasColumnType("uuid");
 
                     b.Property<Guid?>("SeriesId")
                         .HasColumnType("uuid");
-
-                    b.Property<string>("Supplier")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
 
                     b.Property<string>("TypeName")
                         .HasMaxLength(100)
@@ -178,31 +173,6 @@ namespace JewelryManager.Api.Migrations
                     b.HasIndex("BusinessId", "Date");
 
                     b.ToTable("Expenses");
-                });
-
-            modelBuilder.Entity("JewelryManager.Api.Data.Entities.ExpenseSupplier", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("BusinessId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<int>("SortOrder")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("BusinessId", "Name")
-                        .IsUnique();
-
-                    b.ToTable("ExpenseSuppliers");
                 });
 
             modelBuilder.Entity("JewelryManager.Api.Data.Entities.ExpenseType", b =>
@@ -743,10 +713,6 @@ namespace JewelryManager.Api.Migrations
                     b.Property<DateOnly>("NextDate")
                         .HasColumnType("date");
 
-                    b.Property<string>("Supplier")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
                     b.Property<string>("TypeName")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
@@ -921,15 +887,6 @@ namespace JewelryManager.Api.Migrations
                         .WithMany()
                         .HasForeignKey("SeriesId")
                         .OnDelete(DeleteBehavior.SetNull);
-                });
-
-            modelBuilder.Entity("JewelryManager.Api.Data.Entities.ExpenseSupplier", b =>
-                {
-                    b.HasOne("JewelryManager.Api.Data.Entities.Business", null)
-                        .WithMany()
-                        .HasForeignKey("BusinessId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
                 });
 
             modelBuilder.Entity("JewelryManager.Api.Data.Entities.ExpenseType", b =>

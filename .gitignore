@@ -26,3 +26,6 @@ firebase-adminsdk*.json
 secrets.json
 
 !.env.example
+
+# Private invoice files (never commit)
+App_Data/
