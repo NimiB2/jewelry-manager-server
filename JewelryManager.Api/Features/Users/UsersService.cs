@@ -29,7 +29,7 @@ public class UsersService(AppDbContext db, CurrentUserAccessor tenant)
         {
             Id = Guid.NewGuid(),
             BusinessId = tenant.GetBusinessId(),
-            Email = dto.Email,
+            Email = EmailNormalizer.Normalize(dto.Email),
             Name = dto.Name,
             Phone = dto.Phone,
             Role = role,

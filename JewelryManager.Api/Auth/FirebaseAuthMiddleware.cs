@@ -64,9 +64,10 @@ public class FirebaseAuthMiddleware(RequestDelegate next)
         // to the existing record instead of rejecting them.
         if (user is null && decoded.Claims.TryGetValue("email", out var emailClaim))
         {
-            var email = emailClaim.ToString()!;
+            // Stored addresses are lowercase, but ones saved before that rule may not be.
+            var email = EmailNormalizer.Normalize(emailClaim.ToString()!);
             var invited = await db.Users.FirstOrDefaultAsync(
-                u => u.FirebaseUid == null && u.Email == email);
+                u => u.FirebaseUid == null && u.Email.ToLower() == email);
 
             if (invited is not null)
             {
