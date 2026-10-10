@@ -83,8 +83,12 @@ builder.Services.AddScoped<TasksService>();
 builder.Services.AddScoped<InvoicesService>();
 builder.Services.AddScoped<InvoiceReadingService>();
 
-// No AI reader is connected yet; a real one replaces this registration and the form fills itself.
-builder.Services.AddSingleton<IInvoiceReader, NullInvoiceReader>();
+// The AI reader is always registered; it reports itself unavailable until InvoiceReader:Provider/Model/ApiKey are set.
+builder.Services.Configure<InvoiceReaderOptions>(builder.Configuration.GetSection(InvoiceReaderOptions.SectionName));
+builder.Services.AddSingleton<IInvoiceAiProvider, GeminiInvoiceProvider>();
+builder.Services.AddSingleton<IInvoiceAiProvider, OpenAiInvoiceProvider>();
+builder.Services.AddSingleton<IInvoiceAiProvider, ClaudeInvoiceProvider>();
+builder.Services.AddHttpClient<IInvoiceReader, AiInvoiceReader>(client => client.Timeout = TimeSpan.FromSeconds(30));
 
 // Invoice files stay on the disk of the server, outside the web root, until cloud storage is chosen.
 var invoicesPath = builder.Configuration["Invoices:StoragePath"]

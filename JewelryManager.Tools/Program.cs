@@ -8,18 +8,24 @@ using Microsoft.Extensions.Configuration;
 // The connection string comes from JewelryManager.Api/appsettings.Development.json or the
 // ConnectionStrings__Default environment variable. Nothing secret is printed.
 
-if (args.Length < 2 || args[0] is not ("import-products" or "reprice-products"))
+if (args.Length < 2 || args[0] is not ("import-products" or "reprice-products" or "read-invoices"))
 {
     Console.WriteLine("Usage: import-products <file.json> [--dry-run]");
     Console.WriteLine("       reprice-products <file.json> [--dry-run]   (rows without a sheet price get the recommended price)");
+    Console.WriteLine("       read-invoices <folder> [--provider gemini|openai|claude] [--model <name>] [--key-env <ENV_VAR>] [--types a,b,c]");
     return 1;
 }
 
 var config = new ConfigurationBuilder()
     .SetBasePath(Directory.GetCurrentDirectory())
+    .AddJsonFile(Path.Combine("JewelryManager.Api", "appsettings.json"), optional: true)
     .AddJsonFile(Path.Combine("JewelryManager.Api", "appsettings.Development.json"), optional: true)
     .AddEnvironmentVariables()
     .Build();
+
+// Needs no database: it only sends invoice files to the configured AI provider.
+if (args[0] == "read-invoices")
+    return await InvoiceReaderRunner.RunAsync(args[1], args, config);
 
 var connectionString = config.GetConnectionString("Default")
     ?? throw new InvalidOperationException("ConnectionStrings:Default is not configured.");
