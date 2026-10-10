@@ -1,3 +1,4 @@
+using JewelryManager.Api.Common.Configuration;
 using JewelryManager.Api.Data;
 using JewelryManager.Tools;
 using Microsoft.EntityFrameworkCore;
@@ -27,8 +28,10 @@ var config = new ConfigurationBuilder()
 if (args[0] == "read-invoices")
     return await InvoiceReaderRunner.RunAsync(args[1], args, config);
 
-var connectionString = config.GetConnectionString("Default")
-    ?? throw new InvalidOperationException("ConnectionStrings:Default is not configured.");
+// Accepts the key=value form and the postgres:// URL that hosting dashboards hand out (e.g. Render).
+var connectionString = PostgresConnectionString.Normalize(
+    config.GetConnectionString("Default")
+    ?? throw new InvalidOperationException("ConnectionStrings:Default is not configured."));
 
 await using var db = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(connectionString).Options);
 

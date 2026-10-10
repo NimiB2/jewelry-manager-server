@@ -23,7 +23,15 @@ public record ImportRow(
     string Material,
     decimal Weight,
     List<ProductAdditionDto> Additions,
-    decimal? SitePrice);
+    decimal? SitePrice,
+    // More than one collection (a label like "not on the site" next to the sheet's own); falls back to Collection.
+    List<string>? Collections = null,
+    // The online store's side of the product, when it is known.
+    string? ShopifyName = null,
+    string? ShopifyProductId = null,
+    List<ImportVariant>? ShopifyVariants = null);
+
+public record ImportVariant(string Title, decimal Price, string? Sku);
 
 public record RepriceResult(int Updated, int Unchanged, int NotFound, List<string> Failed);
 
@@ -61,7 +69,7 @@ public class ProductImporter(AppDbContext db, Guid businessId)
         foreach (var row in rows)
         {
             var label = $"גיליון {row.Sheet} שורה {row.SourceRow}: {row.Name} ({row.Material})";
-            var key = Key(row.Type, row.Name, row.Material, row.Weight, row.Collection, row.Additions);
+            var key = Key(row.Type, row.Name, row.Material, row.Weight, CollectionNames(row), row.Additions);
             if (!existing.Add(key))
             {
                 skipped++;
@@ -80,10 +88,15 @@ public class ProductImporter(AppDbContext db, Guid businessId)
                     fromRecommendation.Add(label);
                 }
 
-                var ids = row.Collection is null ? new List<Guid>() : [collectionIds[row.Collection]];
-                var dto = new SaveProductDto(row.Type, row.Name, row.Material, row.Weight, 0, sitePrice.Value, row.Additions, ids);
+                var ids = CollectionNames(row).Select(n => collectionIds[n]).ToList();
+                var dto = new SaveProductDto(
+                    row.Type, row.Name, row.Material, row.Weight, 0, sitePrice.Value, row.Additions, ids, row.ShopifyName);
 
-                if (!dryRun) await products.CreateProductAsync(dto);
+                if (!dryRun)
+                {
+                    var saved = await products.CreateProductAsync(dto);
+                    await TieToStoreAsync(saved.Id, row);
+                }
                 created++;
             }
             catch (Exception ex)
@@ -115,7 +128,7 @@ public class ProductImporter(AppDbContext db, Guid businessId)
         foreach (var row in rows)
         {
             var label = $"גיליון {row.Sheet} שורה {row.SourceRow}: {row.Name} ({row.Material})";
-            if (!existing.TryGetValue(Key(row.Type, row.Name, row.Material, row.Weight, row.Collection, row.Additions), out var id))
+            if (!existing.TryGetValue(Key(row.Type, row.Name, row.Material, row.Weight, CollectionNames(row), row.Additions), out var id))
             {
                 notFound++;
                 continue;
@@ -155,7 +168,7 @@ public class ProductImporter(AppDbContext db, Guid businessId)
 
         return products.ToDictionary(p => Key(
             p.Type, p.Name, p.Material, p.Weight,
-            p.Collections.Select(c => c.Collection.Name).FirstOrDefault(n => n is not "כללי"),
+            p.Collections.Select(c => c.Collection.Name).Where(n => n is not "כללי"),
             p.Additions.Select(a => new ProductAdditionDto(a.TypeName, a.CustomName, a.Price, a.Quantity))), p => p.Id);
     }
 
@@ -166,11 +179,11 @@ public class ProductImporter(AppDbContext db, Guid businessId)
         var result = new Dictionary<string, Guid>();
         var current = await collections.GetCollectionsAsync();
 
-        foreach (var name in rows.Select(r => r.Collection).Where(n => n is not null).Distinct())
+        foreach (var name in rows.SelectMany(CollectionNames).Distinct())
         {
             var found = current.FirstOrDefault(c => c.Name == name);
-            if (found is null && !dryRun) found = await collections.CreateCollectionAsync(new CreateCollectionDto(name!));
-            result[name!] = found?.Id ?? Guid.Empty;
+            if (found is null && !dryRun) found = await collections.CreateCollectionAsync(new CreateCollectionDto(name));
+            result[name] = found?.Id ?? Guid.Empty;
         }
 
         return result;
@@ -186,13 +199,31 @@ public class ProductImporter(AppDbContext db, Guid businessId)
 
         return products.Select(p => Key(
             p.Type, p.Name, p.Material, p.Weight,
-            p.Collections.Select(c => c.Collection.Name).FirstOrDefault(n => n is not "כללי"),
+            p.Collections.Select(c => c.Collection.Name).Where(n => n is not "כללי"),
             p.Additions.Select(a => new ProductAdditionDto(a.TypeName, a.CustomName, a.Price, a.Quantity)))).ToHashSet();
     }
 
-    private static string Key(string type, string name, string material, decimal weight, string? collection,
+    // The collections a row belongs to, without the default one (a product with none lands in "General").
+    private static List<string> CollectionNames(ImportRow row) =>
+        (row.Collections ?? (row.Collection is null ? [] : [row.Collection]))
+            .Where(n => n is not "כללי").Distinct().ToList();
+
+    // The store's id and variants are not part of the normal product form, so they are written straight after the create.
+    private async Task TieToStoreAsync(Guid productId, ImportRow row)
+    {
+        if (row.ShopifyProductId is null && row.ShopifyVariants is null) return;
+
+        var product = await db.Products.FirstAsync(p => p.Id == productId && p.BusinessId == businessId);
+        product.ShopifyProductId = row.ShopifyProductId;
+        if (row.ShopifyVariants is { Count: > 0 })
+            product.ShopifyVariants = JsonSerializer.Serialize(row.ShopifyVariants.Select(v => new ShopifyVariantDto(v.Title, v.Price, v.Sku)));
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+    }
+
+    private static string Key(string type, string name, string material, decimal weight, IEnumerable<string> collections,
         IEnumerable<ProductAdditionDto> additions) =>
-        string.Join("|", type, name, material, weight.ToString("0.####"), collection ?? "",
+        string.Join("|", type, name, material, weight.ToString("0.####"), string.Join("+", collections.OrderBy(c => c)),
             string.Join(",", additions.OrderBy(a => a.TypeName).Select(a => $"{a.TypeName}:{a.Price:0.##}x{a.Quantity}")));
 
     // The services read the tenant from the signed-in user; the tool acts as that business's owner.
