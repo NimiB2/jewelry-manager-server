@@ -63,8 +63,9 @@ public class AiInvoiceReader(
             logger.LogInformation("Invoice read by {Provider}/{Model}: {Result}", provider.Name, endpoint.Model, suggestion is null ? "nothing readable" : "ok");
             return suggestion;
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        catch (Exception ex)
         {
+            // Any failure of one model (network, bad answer, malformed key) must let the next one try.
             logger.LogWarning("Invoice reader {Provider}/{Model} failed: {Error}", provider.Name, endpoint.Model, ex.GetType().Name);
             return null;
         }

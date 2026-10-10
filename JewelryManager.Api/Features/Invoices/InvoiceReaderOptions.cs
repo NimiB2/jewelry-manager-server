@@ -3,12 +3,17 @@ namespace JewelryManager.Api.Features.Invoices;
 /// <summary>One AI model to call: which vendor, which model, and the key for it.</summary>
 public class InvoiceReaderEndpoint
 {
+    // Values pasted into a hosting dashboard often carry a stray space or newline; a key with one is rejected.
+    private string _provider = "";
+    private string _model = "";
+    private string _apiKey = "";
+
     /// <summary>"gemini", "openai" or "claude". Empty means not used.</summary>
-    public string Provider { get; set; } = "";
+    public string Provider { get => _provider; set => _provider = value?.Trim() ?? ""; }
 
-    public string Model { get; set; } = "";
+    public string Model { get => _model; set => _model = value?.Trim() ?? ""; }
 
-    public string ApiKey { get; set; } = "";
+    public string ApiKey { get => _apiKey; set => _apiKey = value?.Trim() ?? ""; }
 
     /// <summary>Optional override of the provider's default address (useful for tests and proxies).</summary>
     public string? BaseUrl { get; set; }

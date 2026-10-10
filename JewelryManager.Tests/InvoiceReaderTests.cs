@@ -157,6 +157,37 @@ public class InvoiceReaderTests
     }
 
     [Fact]
+    public void PastedValues_AreTrimmed()
+    {
+        var options = new InvoiceReaderOptions { Provider = " openai\n", Model = "gpt-6-luna \r\n", ApiKey = "  k1\n" };
+
+        Assert.Equal("openai", options.Provider);
+        Assert.Equal("gpt-6-luna", options.Model);
+        Assert.Equal("k1", options.ApiKey);
+        Assert.True(options.IsConfigured);
+    }
+
+    [Fact]
+    public async Task UnexpectedErrorInMainModel_StillFallsBack()
+    {
+        // A key containing a control character makes building the request itself throw.
+        var handler = new RoutingHandler(HttpStatusCode.OK);
+        var reader = new AiInvoiceReader(new HttpClient(handler),
+            Options.Create(new InvoiceReaderOptions
+            {
+                Provider = "openai", Model = "gpt-6-luna", ApiKey = "bad\nkey",
+                Fallback = new InvoiceReaderEndpoint { Provider = "claude", Model = "claude-haiku-5-5", ApiKey = "k2" },
+            }),
+            [new OpenAiInvoiceProvider(), new ClaudeInvoiceProvider()],
+            NullLogger<AiInvoiceReader>.Instance);
+
+        var result = await Read(reader);
+
+        Assert.Equal(118.5m, result!.Amount);
+        Assert.Equal(["api.anthropic.com"], handler.Hosts);
+    }
+
+    [Fact]
     public async Task PdfIsSentAsDocument_ForClaude()
     {
         var handler = new FakeHandler(HttpStatusCode.OK, "{}");
