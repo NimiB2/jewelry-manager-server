@@ -9,9 +9,11 @@ using Microsoft.Extensions.Configuration;
 // The connection string comes from JewelryManager.Api/appsettings.Development.json or the
 // ConnectionStrings__Default environment variable. Nothing secret is printed.
 
-if (args.Length < 2 || args[0] is not ("import-products" or "reprice-products" or "read-invoices" or "export-settings" or "import-settings"))
+if (args.Length < 1 || (args[0] != "status" && args.Length < 2)
+    || args[0] is not ("status" or "import-products" or "reprice-products" or "read-invoices" or "export-settings" or "import-settings"))
 {
-    Console.WriteLine("Usage: import-products <file.json> [--dry-run]");
+    Console.WriteLine("Usage: status   (what is in the database this tool points at)");
+    Console.WriteLine("       import-products <file.json> [--dry-run]");
     Console.WriteLine("       reprice-products <file.json> [--dry-run]   (rows without a sheet price get the recommended price)");
     Console.WriteLine("       export-settings <file.json>   (saves the settings of this database)");
     Console.WriteLine("       import-settings <file.json> [--dry-run]   (replaces the settings of this database)");
@@ -36,6 +38,12 @@ var connectionString = PostgresConnectionString.Normalize(
     ?? throw new InvalidOperationException("ConnectionStrings:Default is not configured."));
 
 await using var db = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(connectionString).Options);
+
+if (args[0] == "status")
+{
+    await StatusReport.PrintAsync(db, connectionString);
+    return 0;
+}
 
 var business = await db.Businesses.AsNoTracking().ToListAsync();
 if (business.Count != 1)
