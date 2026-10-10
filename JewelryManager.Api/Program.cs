@@ -1,6 +1,7 @@
 using FirebaseAdmin;
 using Google.Apis.Auth.OAuth2;
 using JewelryManager.Api.Auth;
+using JewelryManager.Api.Common.Configuration;
 using JewelryManager.Api.Common.Filters;
 using JewelryManager.Api.Data;
 using JewelryManager.Api.Features.Collections;
@@ -36,25 +37,31 @@ builder.Services.AddOpenApi();
 // ── Database ──────────────────────────────────────────────────────────────────
 // Registers AppDbContext as a scoped service (one instance per HTTP request).
 // Npgsql is the PostgreSQL provider for EF Core.
-var connectionString = builder.Configuration.GetConnectionString("Default")
-    ?? throw new InvalidOperationException("ConnectionStrings:Default is not configured.");
+var connectionString = PostgresConnectionString.Normalize(
+    builder.Configuration.GetConnectionString("Default")
+    ?? throw new InvalidOperationException("ConnectionStrings:Default is not configured."));
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(connectionString));
 
 // ── Firebase ──────────────────────────────────────────────────────────────────
 // Initialize the Firebase Admin SDK once (singleton for the app lifetime).
-// The credential file path comes from an environment variable — never hardcoded.
-var firebaseCredentialPath = builder.Configuration["Firebase:CredentialPath"]
-    ?? throw new InvalidOperationException("Firebase:CredentialPath is not configured.");
+// In the cloud the service account arrives as the JSON text itself (Firebase:CredentialJson, an env var,
+// since there is no file to ship); locally it is a file whose path is Firebase:CredentialPath.
+var firebaseCredentialJson = builder.Configuration["Firebase:CredentialJson"];
+var firebaseCredentialPath = builder.Configuration["Firebase:CredentialPath"];
+if (string.IsNullOrWhiteSpace(firebaseCredentialJson) && string.IsNullOrWhiteSpace(firebaseCredentialPath))
+    throw new InvalidOperationException("Neither Firebase:CredentialJson nor Firebase:CredentialPath is configured.");
 
-// GoogleCredential.FromFile is flagged as deprecated but remains the correct
-// approach for loading service account JSON files in FirebaseAdmin 3.x.
+// GoogleCredential.FromFile/FromJson are flagged as deprecated but remain the correct
+// approach for loading service account JSON in FirebaseAdmin 3.x.
 // The suggested CredentialFactory alternative is not yet available in this SDK version.
 #pragma warning disable CS0618
 FirebaseApp.Create(new AppOptions
 {
-    Credential = GoogleCredential.FromFile(firebaseCredentialPath),
+    Credential = !string.IsNullOrWhiteSpace(firebaseCredentialJson)
+        ? GoogleCredential.FromJson(firebaseCredentialJson)
+        : GoogleCredential.FromFile(firebaseCredentialPath),
 });
 #pragma warning restore CS0618
 
@@ -111,15 +118,15 @@ builder.Services.AddCors(options =>
 // ─────────────────────────────────────────────────────────────────────────────
 var app = builder.Build();
 
-await app.InitializeDevelopmentDatabaseAsync();
+await app.InitializeDatabaseAsync();
 
 // ── Middleware pipeline (ORDER MATTERS) ───────────────────────────────────────
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();   // Swagger JSON at /openapi/v1.json
+    // In the cloud the platform's proxy terminates TLS and redirects HTTP itself.
+    app.UseHttpsRedirection();
 }
-
-app.UseHttpsRedirection();
 app.UseCors();
 
 // FirebaseAuthMiddleware runs before any controller.

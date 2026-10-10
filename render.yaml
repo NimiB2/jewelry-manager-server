@@ -1,0 +1,48 @@
+# Render Blueprint: the API server, its PostgreSQL database and the disk that holds invoice files.
+# Values marked sync:false are asked for once in the Render dashboard and never live in git.
+databases:
+  - name: jewelry-db
+    region: frankfurt
+    plan: basic-256mb
+
+services:
+  - type: web
+    name: jewelry-api
+    runtime: docker
+    region: frankfurt
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    disk:
+      name: invoices
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: ConnectionStrings__Default
+        fromDatabase:
+          name: jewelry-db
+          property: connectionString
+      - key: Database__MigrateOnStart
+        value: "true"
+      - key: Invoices__StoragePath
+        value: /var/data/invoices
+      - key: Firebase__CredentialJson
+        sync: false
+      - key: Cors__ClientOrigin
+        sync: false
+      - key: Seed__OwnerEmail
+        sync: false
+      - key: InvoiceReader__Provider
+        value: openai
+      - key: InvoiceReader__Model
+        value: gpt-6-luna
+      - key: InvoiceReader__ReasoningEffort
+        value: low
+      - key: InvoiceReader__ApiKey
+        sync: false
+      - key: InvoiceReader__Fallback__Provider
+        value: claude
+      - key: InvoiceReader__Fallback__Model
+        value: claude-haiku-5-5
+      - key: InvoiceReader__Fallback__ApiKey
+        sync: false

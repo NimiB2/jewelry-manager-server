@@ -1,0 +1,18 @@
+**/bin/
+**/obj/
+.git/
+.vs/
+.idea/
+.vscode/
+
+# Secrets and local data never go into an image
+**/appsettings.Development.json
+**/appsettings.*.local.json
+**/firebase-adminsdk*.json
+**/*service-account*.json
+**/.env
+**/.env.*
+**/App_Data/
+
+JewelryManager.Tests/
+JewelryManager.Tools/
