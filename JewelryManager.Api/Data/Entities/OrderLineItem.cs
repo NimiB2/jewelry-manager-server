@@ -24,5 +24,9 @@ public class OrderLineItem
     // A free note about this item (engraving text, size, a request...).
     public string? Note { get; set; }
 
+    // For a line that came from the store: the store's product id, so linking it to a catalog product
+    // teaches the system the match. Empty for manual lines.
+    public string? ExternalProductId { get; set; }
+
     public int SortOrder { get; set; }
 }

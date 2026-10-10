@@ -18,6 +18,13 @@ public record ProductResponse(
     List<Guid> CollectionIds,
     PriceBreakdown? Price,
     string? PriceError,
-    DateTime UpdatedAt);
+    DateTime UpdatedAt,
+    string? ShopifyName,
+    // What the store offers for this product (one entry per variant); empty when it was never imported.
+    List<ShopifyVariantDto> ShopifyVariants,
+    // True while the type or the material is missing (a product imported from the store).
+    bool NeedsDetails);
+
+public record ShopifyVariantDto(string Title, decimal Price, string? Sku);
 
 public record ProductsListResponse(List<ProductResponse> Products, PricingMeta? Pricing);

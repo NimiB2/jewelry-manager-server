@@ -1,3 +1,4 @@
+using System.Text.Json;
 using JewelryManager.Api.Auth;
 using JewelryManager.Api.Common.Exceptions;
 using JewelryManager.Api.Data;
@@ -39,6 +40,7 @@ public class ProductsService(AppDbContext db, CurrentUserAccessor tenant, Pricin
         var businessId = tenant.GetBusinessId();
         var additions = await ValidateAdditionsAsync(dto.Additions);
         var collectionIds = await ResolveCollectionIdsAsync(dto.CollectionIds);
+        await EnsureShopifyNameFreeAsync(dto.ShopifyName, null);
 
         var now = DateTime.UtcNow;
         var product = new Product
@@ -63,6 +65,7 @@ public class ProductsService(AppDbContext db, CurrentUserAccessor tenant, Pricin
         var product = await FindOrThrowAsync(id, asNoTracking: false);
         var additions = await ValidateAdditionsAsync(dto.Additions);
         var collectionIds = (await ResolveCollectionIdsAsync(dto.CollectionIds)).ToHashSet();
+        await EnsureShopifyNameFreeAsync(dto.ShopifyName, id);
 
         // Only the difference is applied: re-adding an unchanged link in the same save would clash on its key.
         foreach (var link in product.Collections.Where(l => !collectionIds.Contains(l.CollectionId)).ToList())
@@ -114,8 +117,29 @@ public class ProductsService(AppDbContext db, CurrentUserAccessor tenant, Pricin
         product.AdditionalWorkHours = dto.AdditionalWorkHours;
         product.SitePrice = dto.SitePrice;
 
+        // Null leaves the store name alone, so a client that does not know the field never wipes it.
+        if (dto.ShopifyName is not null)
+            product.ShopifyName = string.IsNullOrWhiteSpace(dto.ShopifyName) ? null : dto.ShopifyName.Trim();
+
         foreach (var addition in additions)
             addition.BusinessId = product.BusinessId;
+    }
+
+    // Two catalog products with the same store name would make incoming orders ambiguous.
+    private async Task EnsureShopifyNameFreeAsync(string? shopifyName, Guid? exceptProductId)
+    {
+        var name = shopifyName?.Trim();
+        if (string.IsNullOrEmpty(name)) return;
+
+        var businessId = tenant.GetBusinessId();
+        var lowered = name.ToLower();
+        var taken = await db.Products.AsNoTracking()
+            .Where(p => p.BusinessId == businessId && p.Id != exceptProductId && p.ShopifyName != null && p.ShopifyName.ToLower() == lowered)
+            .Select(p => p.Name)
+            .FirstOrDefaultAsync();
+
+        if (taken is not null)
+            throw new BadRequestException($"השם \"{name}\" בשופיפי כבר מקושר למוצר \"{taken}\"");
     }
 
     private async Task<List<ProductAddition>> ValidateAdditionsAsync(List<ProductAdditionDto> dtos)
@@ -218,6 +242,21 @@ public class ProductsService(AppDbContext db, CurrentUserAccessor tenant, Pricin
 
         return new ProductResponse(
             p.Id, p.Type, p.Name, p.Material, p.Weight, p.AdditionalWorkHours, p.SitePrice,
-            additions, p.Collections.Select(c => c.CollectionId).ToList(), price, error, p.UpdatedAt);
+            additions, p.Collections.Select(c => c.CollectionId).ToList(), price, error, p.UpdatedAt,
+            p.ShopifyName, ReadVariants(p.ShopifyVariants), p.NeedsDetails);
+    }
+
+    // The variants are display-only data written by the importer; anything unreadable just shows nothing.
+    private static List<ShopifyVariantDto> ReadVariants(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return [];
+        try
+        {
+            return JsonSerializer.Deserialize<List<ShopifyVariantDto>>(json) ?? [];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
     }
 }

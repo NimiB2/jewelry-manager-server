@@ -108,6 +108,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         {
             e.HasIndex(o => new { o.BusinessId, o.Number }).IsUnique();
             e.HasIndex(o => new { o.BusinessId, o.Date });
+            e.Property(o => o.ExternalId).HasMaxLength(40);
+            e.Property(o => o.ExternalName).HasMaxLength(50);
+
+            // The same store order can arrive twice (the store retries); it must become one order.
+            e.HasIndex(o => new { o.BusinessId, o.ExternalId }).IsUnique().HasFilter("\"ExternalId\" IS NOT NULL");
             e.Property(o => o.Amount).HasPrecision(18, 2);
             e.Property(o => o.FinalAmount).HasPrecision(18, 2);
             e.Property(o => o.LaborHourRate).HasPrecision(18, 4);
@@ -123,6 +128,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(i => i.UnitPrice).HasPrecision(18, 2);
             e.Property(i => i.WorkHours).HasPrecision(18, 4);
             e.Property(i => i.Note).HasMaxLength(500);
+            e.Property(i => i.ExternalProductId).HasMaxLength(40);
             e.HasOne(i => i.Order).WithMany(o => o.Items).HasForeignKey(i => i.OrderId).OnDelete(DeleteBehavior.Cascade);
 
             // Deleting a product must not rewrite history: the line keeps its snapshot, only the link goes.
@@ -150,6 +156,12 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(p => p.Weight).HasPrecision(18, 4);
             e.Property(p => p.AdditionalWorkHours).HasPrecision(18, 4);
             e.Property(p => p.SitePrice).HasPrecision(18, 4);
+            e.Property(p => p.ShopifyName).HasMaxLength(300);
+            e.Property(p => p.ShopifyProductId).HasMaxLength(40);
+            e.Property(p => p.ShopifyVariants).HasColumnType("jsonb");
+
+            // A store product can be linked to only one catalog product.
+            e.HasIndex(p => new { p.BusinessId, p.ShopifyProductId }).IsUnique().HasFilter("\"ShopifyProductId\" IS NOT NULL");
             e.HasOne<Business>().WithMany().HasForeignKey(p => p.BusinessId).OnDelete(DeleteBehavior.Cascade);
         });
 

@@ -22,6 +22,15 @@ public class Order
     public string? DiscountReason { get; set; }
 
     public OrderSource Source { get; set; } = OrderSource.Manual;
+
+    // The id the order has in the store it came from (Shopify), and its display name like "#1001".
+    // Unique per business, so a webhook that is delivered twice cannot create the order twice.
+    public string? ExternalId { get; set; }
+    public string? ExternalName { get; set; }
+
+    // An order from the store waits for the owner's approval before it counts (income, task).
+    public bool IsPendingApproval { get; set; }
+
     public bool ReceiptSent { get; set; }
 
     public OrderStatus Status { get; set; } = OrderStatus.New;

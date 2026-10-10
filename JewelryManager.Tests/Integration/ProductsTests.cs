@@ -275,6 +275,62 @@ public class ProductsTests(PostgresFixture pg)
         Assert.Equal([general], (await WithProducts(Business, s => s.GetProductAsync(both.Id))).CollectionIds);
     }
 
+    [Fact]
+    public async Task ShopifyName_IsSaved_KeptWhenOmitted_ClearedWhenEmpty_AndNeverDuplicated()
+    {
+        await ResetPricingSetupAsync();
+        var name = "Silver Ring " + Guid.NewGuid().ToString("N")[..6];
+
+        var first = await WithProducts(Business, s => s.CreateProductAsync(Ring() with { ShopifyName = "  " + name + " " }));
+        Assert.Equal(name, first.ShopifyName);
+
+        // A save that does not mention the field (an older client) must not wipe it.
+        var kept = await WithProducts(Business, s => s.UpdateProductAsync(first.Id, Ring()));
+        Assert.Equal(name, kept.ShopifyName);
+
+        // The same store name (any case) cannot belong to two products.
+        var error = await Assert.ThrowsAsync<BadRequestException>(() =>
+            WithProducts(Business, s => s.CreateProductAsync(Ring() with { ShopifyName = name.ToUpperInvariant() })));
+        Assert.Contains(name, error.Message, StringComparison.OrdinalIgnoreCase);
+
+        // Saving the owner of the name again is not a clash with itself.
+        var again = await WithProducts(Business, s => s.UpdateProductAsync(first.Id, Ring() with { ShopifyName = name }));
+        Assert.Equal(name, again.ShopifyName);
+
+        var cleared = await WithProducts(Business, s => s.UpdateProductAsync(first.Id, Ring() with { ShopifyName = "" }));
+        Assert.Null(cleared.ShopifyName);
+    }
+
+    [Fact]
+    public async Task ProductWithoutTypeOrMaterial_IsListedAsNeedingDetails_WithoutAPrice()
+    {
+        await ResetPricingSetupAsync();
+        var id = Guid.NewGuid();
+        await using (var db = pg.NewDb())
+        {
+            var now = DateTime.UtcNow;
+            db.Products.Add(new Product
+            {
+                Id = id, BusinessId = Business, Name = "Imported ring " + id.ToString("N")[..6], SitePrice = 199,
+                ShopifyVariants = """[{"Title":"Size 6","Price":199,"Sku":null},{"Title":"Size 7","Price":209,"Sku":"R7"}]""",
+                CreatedAt = now, UpdatedAt = now,
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var product = await WithProducts(Business, s => s.GetProductAsync(id));
+
+        Assert.True(product.NeedsDetails);
+        Assert.Null(product.Price);
+        Assert.NotNull(product.PriceError);
+        Assert.Equal(199, product.SitePrice);
+        Assert.Equal([199m, 209m], product.ShopifyVariants.Select(v => v.Price));
+        Assert.Equal("R7", product.ShopifyVariants[1].Sku);
+
+        // The list must still load with such a product in it.
+        Assert.Contains((await WithProducts(Business, s => s.GetProductsAsync())).Products, p => p.Id == id);
+    }
+
     private async Task<Collection> WithCollection(string name)
     {
         await using var db = pg.NewDb();
