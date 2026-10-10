@@ -227,7 +227,7 @@ public class ProductImporter(AppDbContext db, Guid businessId)
             string.Join(",", additions.OrderBy(a => a.TypeName).Select(a => $"{a.TypeName}:{a.Price:0.##}x{a.Quantity}")));
 
     // The services read the tenant from the signed-in user; the tool acts as that business's owner.
-    private static CurrentUserAccessor TenantFor(Guid businessId)
+    internal static CurrentUserAccessor TenantFor(Guid businessId)
     {
         var http = new DefaultHttpContext();
         var accessor = new CurrentUserAccessor(new HttpContextAccessor { HttpContext = http });

@@ -9,10 +9,12 @@ using Microsoft.Extensions.Configuration;
 // The connection string comes from JewelryManager.Api/appsettings.Development.json or the
 // ConnectionStrings__Default environment variable. Nothing secret is printed.
 
-if (args.Length < 2 || args[0] is not ("import-products" or "reprice-products" or "read-invoices"))
+if (args.Length < 2 || args[0] is not ("import-products" or "reprice-products" or "read-invoices" or "export-settings" or "import-settings"))
 {
     Console.WriteLine("Usage: import-products <file.json> [--dry-run]");
     Console.WriteLine("       reprice-products <file.json> [--dry-run]   (rows without a sheet price get the recommended price)");
+    Console.WriteLine("       export-settings <file.json>   (saves the settings of this database)");
+    Console.WriteLine("       import-settings <file.json> [--dry-run]   (replaces the settings of this database)");
     Console.WriteLine("       read-invoices <folder> [--provider gemini|openai|claude] [--model <name>] [--key-env <ENV_VAR>] [--types a,b,c]");
     return 1;
 }
@@ -41,6 +43,18 @@ if (business.Count != 1)
 
 var dryRun = args.Contains("--dry-run");
 Console.WriteLine($"{(dryRun ? "DRY RUN — nothing is saved. " : "")}Business: {business[0].Name}");
+
+if (args[0] is "export-settings" or "import-settings")
+{
+    var exporting = args[0] == "export-settings";
+    var settings = exporting
+        ? await SettingsTransfer.ExportAsync(db, business[0].Id, args[1])
+        : await SettingsTransfer.ImportAsync(db, business[0].Id, args[1], dryRun);
+
+    Console.WriteLine(exporting ? $"Saved the settings to {args[1]}" : dryRun ? "Would replace the settings with:" : "Settings replaced with:");
+    foreach (var line in SettingsTransfer.Describe(settings)) Console.WriteLine("  " + line);
+    return 0;
+}
 
 var importer = new ProductImporter(db, business[0].Id);
 
