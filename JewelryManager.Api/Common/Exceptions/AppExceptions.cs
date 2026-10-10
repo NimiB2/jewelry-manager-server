@@ -17,3 +17,12 @@ public class UnauthorizedException(string message = "Unauthorized") : AppExcepti
 
 /// <summary>Thrown when the caller lacks the required role. Maps to HTTP 403.</summary>
 public class ForbiddenException(string message = "Forbidden") : AppException(message);
+
+/// <summary>
+/// Thrown when a valid request clashes with existing data and the user may confirm to go on
+/// (e.g. a product already linked elsewhere). Maps to HTTP 409; Code lets the client tell which clash it is.
+/// </summary>
+public class ConflictException(string message, string code) : AppException(message)
+{
+    public string Code { get; } = code;
+}

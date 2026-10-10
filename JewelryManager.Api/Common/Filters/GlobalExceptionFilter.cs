@@ -15,6 +15,16 @@ public class GlobalExceptionFilter : IExceptionFilter
 {
     public void OnException(ExceptionContext context)
     {
+        if (context.Exception is ConflictException conflict)
+        {
+            context.Result = new ObjectResult(new { error = conflict.Message, code = conflict.Code })
+            {
+                StatusCode = StatusCodes.Status409Conflict,
+            };
+            context.ExceptionHandled = true;
+            return;
+        }
+
         var (status, message) = context.Exception switch
         {
             NotFoundException ex   => (StatusCodes.Status404NotFound,       ex.Message),

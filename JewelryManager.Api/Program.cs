@@ -13,6 +13,7 @@ using JewelryManager.Api.Features.Orders;
 using JewelryManager.Api.Features.Pricing;
 using JewelryManager.Api.Features.Products;
 using JewelryManager.Api.Features.Settings;
+using JewelryManager.Api.Features.Shopify;
 using JewelryManager.Api.Features.Tasks;
 using JewelryManager.Api.Features.Users;
 using Microsoft.EntityFrameworkCore;
@@ -96,6 +97,12 @@ builder.Services.AddSingleton<IInvoiceAiProvider, GeminiInvoiceProvider>();
 builder.Services.AddSingleton<IInvoiceAiProvider, OpenAiInvoiceProvider>();
 builder.Services.AddSingleton<IInvoiceAiProvider, ClaudeInvoiceProvider>();
 builder.Services.AddHttpClient<IInvoiceReader, AiInvoiceReader>(client => client.Timeout = TimeSpan.FromSeconds(30));
+
+// The online store (Shopify): read-only. The domain, token and webhook secret are env vars.
+builder.Services.Configure<ShopifyOptions>(builder.Configuration.GetSection(ShopifyOptions.SectionName));
+builder.Services.AddHttpClient<IShopifyCatalogClient, ShopifyCatalogClient>(client => client.Timeout = TimeSpan.FromSeconds(30));
+builder.Services.AddScoped<ShopifyImportService>();
+builder.Services.AddScoped<ShopifyOrderImportService>();
 
 // Invoice files stay on the disk of the server, outside the web root, until cloud storage is chosen.
 var invoicesPath = builder.Configuration["Invoices:StoragePath"]

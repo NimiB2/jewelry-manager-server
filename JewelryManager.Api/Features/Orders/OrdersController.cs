@@ -18,6 +18,17 @@ public class OrdersController(OrdersService service) : ControllerBase
     [HttpGet("years")]
     public Task<List<int>> GetYears() => service.GetYearsAsync();
 
+    /// <summary>Orders that came from the store and wait for approval.</summary>
+    [HttpGet("pending")]
+    public Task<List<OrderResponse>> GetPending() => service.GetPendingOrdersAsync();
+
+    [HttpPut("{id:guid}/items/{lineId:guid}/product")]
+    public Task<OrderResponse> LinkLine(Guid id, Guid lineId, LinkLineProductDto dto) =>
+        service.LinkLineAsync(id, lineId, dto.ProductId, dto.Replace);
+
+    [HttpPost("{id:guid}/approve")]
+    public Task<OrderResponse> Approve(Guid id) => service.ApproveAsync(id);
+
     [HttpGet("{id:guid}")]
     public Task<OrderResponse> GetOrder(Guid id) => service.GetOrderAsync(id);
 

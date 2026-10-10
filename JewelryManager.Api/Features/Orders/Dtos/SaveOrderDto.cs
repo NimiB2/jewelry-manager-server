@@ -42,3 +42,9 @@ public record UpdateOrderStatusDto(Data.Entities.OrderStatus Status);
 public record UpdateReceiptSentDto(bool ReceiptSent);
 
 public record UpdateOrderStageDto([Required, MaxLength(200)] string Stage);
+
+/// <summary>
+/// Body of PUT /orders/{id}/items/{lineId}/product: ties a store line to a catalog product. Replace
+/// confirms the warning the server raised when the product (or the store product) was already tied elsewhere.
+/// </summary>
+public record LinkLineProductDto(Guid ProductId, bool Replace = false);

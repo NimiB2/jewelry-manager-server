@@ -12,7 +12,11 @@ public record OrderItemResponse(
     int Quantity,
     decimal LineTotal,
     decimal WorkHours,
-    string? Note);
+    string? Note,
+    // The store's product id for a line that came from the store (null for manual lines).
+    string? ExternalProductId = null,
+    // True on a pending order's line that still has to be tied to a catalog product.
+    bool NeedsProduct = false);
 
 public record OrderResponse(
     Guid Id,
@@ -33,7 +37,10 @@ public record OrderResponse(
     string? Notes,
     bool IsCompleted,
     DateTime? CompletedDate,
-    List<OrderItemResponse> Items);
+    List<OrderItemResponse> Items,
+    // The store's display name ("#1001") and whether the owner still has to approve the order.
+    string? ExternalName = null,
+    bool IsPendingApproval = false);
 
 /// <summary>Totals over exactly the orders the list is showing (e.g. one month).</summary>
 public record OrdersSummary(int Count, decimal TotalFinalAmount);

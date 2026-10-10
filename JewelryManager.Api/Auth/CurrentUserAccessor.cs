@@ -17,6 +17,9 @@ public class CurrentUserAccessor(IHttpContextAccessor httpContextAccessor)
 {
     private const string UserKey = "CurrentUser";
 
+    // Set only by a trusted system caller (a verified store webhook), which has no signed-in user.
+    private Guid? _systemBusinessId;
+
     /// <summary>Returns the authenticated user for this request.</summary>
     /// <exception cref="UnauthorizedException">If no user was resolved by middleware.</exception>
     public User GetUser()
@@ -32,12 +35,20 @@ public class CurrentUserAccessor(IHttpContextAccessor httpContextAccessor)
     /// <exception cref="UnauthorizedException">If the user has no associated business.</exception>
     public Guid GetBusinessId()
     {
+        if (_systemBusinessId is { } systemBusinessId) return systemBusinessId;
+
         var businessId = GetUser().BusinessId;
 
         // An employee whose account was pre-created but who hasn't been assigned to a
         // business yet would hit this. Treat it the same as unauthorized.
         return businessId ?? throw new UnauthorizedException("User is not associated with a business");
     }
+
+    /// <summary>
+    /// Runs the rest of this request as the given business. Never call it from user-driven code: it exists
+    /// for requests that were authenticated another way (a webhook whose signature was verified).
+    /// </summary>
+    public void UseBusiness(Guid businessId) => _systemBusinessId = businessId;
 
     /// <summary>Stores the resolved user in HttpContext.Items. Called only by middleware.</summary>
     public void SetUser(HttpContext context, User user) =>

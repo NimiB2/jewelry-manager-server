@@ -4,7 +4,9 @@ using System.Text.Json;
 namespace JewelryManager.Api.Features.Shopify;
 
 /// <summary>One line of an order as Shopify sent it, before any matching to the catalog.</summary>
-public record IncomingLine(string ExternalLineId, string Title, string? VariantTitle, string? Sku, int Quantity, decimal UnitPrice);
+/// <summary>ExternalProductId is empty for a custom item that the store does not keep as a product.</summary>
+public record IncomingLine(
+    string ExternalLineId, string Title, string? VariantTitle, string? Sku, int Quantity, decimal UnitPrice, string? ExternalProductId = null);
 
 /// <summary>An order as Shopify sent it, reduced to what this system uses. All text is already trimmed and bounded.</summary>
 public record IncomingOrder(
@@ -45,7 +47,9 @@ public static class ShopifyOrderParser
                 var price = Money(item, "price");
                 if (lineId is null || title is null || quantity is not (> 0 and <= 1_000) || price is null) return null;
 
-                lines.Add(new IncomingLine(lineId, title, Text(item, "variant_title", 200), Text(item, "sku", 100), quantity.Value, price.Value));
+                lines.Add(new IncomingLine(
+                    lineId, title, Text(item, "variant_title", 200), Text(item, "sku", 100), quantity.Value, price.Value,
+                    Text(item, "product_id", 40)));
             }
 
             var total = Money(root, "total_price");
