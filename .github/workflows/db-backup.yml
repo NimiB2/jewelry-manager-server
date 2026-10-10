@@ -1,0 +1,47 @@
+# Nightly encrypted copy of the production database to Backblaze B2.
+# GitHub only runs the job; the dump is encrypted here and stored in B2, never in this repository.
+# Backups are kept forever (no lifecycle rule): the database is small, so years cost cents.
+name: Database backup
+
+on:
+  schedule:
+    - cron: "30 2 * * *" # every night, 02:30 UTC
+  workflow_dispatch: # also runnable by hand from the Actions tab
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Dump the database
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          # A newer pg_dump can read an older server; the image keeps the tool version independent of the runner.
+          docker run --rm -e DATABASE_URL postgres:18 \
+            sh -c 'pg_dump "$DATABASE_URL" --format=custom --no-owner --no-acl' > backup.dump
+          test -s backup.dump
+
+      - name: Encrypt
+        env:
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          gpg --batch --yes --pinentry-mode loopback --passphrase "$BACKUP_PASSPHRASE" \
+            --symmetric --cipher-algo AES256 --output backup.dump.gpg backup.dump
+          rm backup.dump
+          test -s backup.dump.gpg
+
+      - name: Upload to Backblaze B2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.B2_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.B2_APP_KEY }}
+          AWS_DEFAULT_REGION: us-east-1
+          B2_BUCKET: ${{ secrets.B2_BUCKET }}
+          B2_ENDPOINT: ${{ secrets.B2_ENDPOINT }}
+        run: |
+          name="jewelry-db-$(date -u +%Y-%m-%d_%H%M).dump.gpg"
+          aws s3 cp backup.dump.gpg "s3://$B2_BUCKET/$name" --endpoint-url "$B2_ENDPOINT"
+          echo "Uploaded $name"
