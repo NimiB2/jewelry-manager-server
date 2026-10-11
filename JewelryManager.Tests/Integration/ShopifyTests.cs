@@ -344,6 +344,9 @@ public class ShopifyTests(PostgresFixture pg)
         await using (var db = pg.NewDb())
             Assert.Equal(1, await db.Incomes.CountAsync(i => i.OrderId == approvedOrder.Id));
 
+        // It is listed for the owner until the warning is dismissed.
+        Assert.Contains(await WithOrders(s => s.GetAlertedOrdersAsync()), o => o.Id == approvedOrder.Id);
+
         // Still waiting: it cannot be approved, the owner has to decide first.
         var waiting = await ImportKnownAsync("32" + u, storeId);
         await WithOrders(s => s.ApplyStoreChangeAsync("32" + u, StoreOrderAlert.Cancelled));

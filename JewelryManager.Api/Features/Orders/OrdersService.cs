@@ -399,6 +399,25 @@ public class OrdersService(AppDbContext db, CurrentUserAccessor tenant)
         return await GetOrderAsync(id);
     }
 
+    /// <summary>
+    /// Orders already on the books that the store later cancelled, deleted or changed. Orders still
+    /// waiting for approval show their warning in the approval area instead.
+    /// </summary>
+    public async Task<List<OrderResponse>> GetAlertedOrdersAsync()
+    {
+        var businessId = tenant.GetBusinessId();
+        var testPrefix = await GetTestPrefixAsync();
+
+        var orders = await db.Orders.AsNoTracking()
+            .Include(o => o.Items)
+            .Where(o => o.BusinessId == businessId && !o.IsDeleted && !o.IsPendingApproval
+                        && o.StoreAlert != StoreOrderAlert.None)
+            .OrderByDescending(o => o.StoreAlertAt)
+            .ToListAsync();
+
+        return orders.Select(o => ToResponse(o, testPrefix)).ToList();
+    }
+
     public async Task<OrdersAttentionResponse> GetAttentionAsync()
     {
         var businessId = tenant.GetBusinessId();

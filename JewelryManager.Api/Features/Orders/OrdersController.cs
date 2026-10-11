@@ -30,6 +30,10 @@ public class OrdersController(OrdersService service) : ControllerBase
     [HttpGet("attention")]
     public Task<OrdersAttentionResponse> GetAttention() => service.GetAttentionAsync();
 
+    /// <summary>Approved orders the store later cancelled, deleted or changed.</summary>
+    [HttpGet("alerts")]
+    public Task<List<OrderResponse>> GetAlerts() => service.GetAlertedOrdersAsync();
+
     [HttpPost("{id:guid}/dismiss-alert")]
     public Task<OrderResponse> DismissAlert(Guid id) => service.DismissStoreAlertAsync(id);
 
