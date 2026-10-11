@@ -317,6 +317,120 @@ public class ShopifyTests(PostgresFixture pg)
         Assert.Equal(0, await db.Incomes.CountAsync(i => i.OrderId == order.Id));
     }
 
+    // ── Later changes from the store ─────────────────────────────────────────
+
+    private async Task<OrderResponse> ImportKnownAsync(string externalId, string storeProductId)
+    {
+        await WithOrders(s => s.ImportStoreOrderAsync(StoreOrder(externalId, 0, Line("Ring " + externalId, storeProductId, 100))));
+        return (await WithOrders(s => s.GetPendingOrdersAsync())).Single(o => o.ExternalName == "#" + externalId);
+    }
+
+    [Fact]
+    public async Task ACancelledStoreOrder_IsFlagged_NeverTouchesTheBooks_AndCannotBeApprovedUntilDismissed()
+    {
+        await EnsureSetupAsync();
+        var u = Unique();
+        var storeId = "C" + u;
+        await AddProductAsync("מוצר " + u, 100, "Ring " + u, storeId);
+
+        // Already approved and on the books: the cancellation is a warning, the income stays.
+        var approvedOrder = await ImportKnownAsync("31" + u, storeId);
+        await WithOrders(s => s.ApproveAsync(approvedOrder.Id));
+        Assert.True(await WithOrders(s => s.ApplyStoreChangeAsync("31" + u, StoreOrderAlert.Cancelled)));
+
+        var flagged = await WithOrders(s => s.GetOrderAsync(approvedOrder.Id));
+        Assert.Equal(StoreOrderAlert.Cancelled, flagged.StoreAlert);
+        Assert.NotNull(flagged.StoreAlertAt);
+        await using (var db = pg.NewDb())
+            Assert.Equal(1, await db.Incomes.CountAsync(i => i.OrderId == approvedOrder.Id));
+
+        // Still waiting: it cannot be approved, the owner has to decide first.
+        var waiting = await ImportKnownAsync("32" + u, storeId);
+        await WithOrders(s => s.ApplyStoreChangeAsync("32" + u, StoreOrderAlert.Cancelled));
+        await Assert.ThrowsAsync<BadRequestException>(() => WithOrders(s => s.ApproveAsync(waiting.Id)));
+
+        var dismissed = await WithOrders(s => s.DismissStoreAlertAsync(waiting.Id));
+        Assert.Equal(StoreOrderAlert.None, dismissed.StoreAlert);
+        Assert.False((await WithOrders(s => s.ApproveAsync(waiting.Id))).IsPendingApproval);
+    }
+
+    [Fact]
+    public async Task AnUpdate_FlagsOnlyARealChange_AndNeverHidesACancellation()
+    {
+        await EnsureSetupAsync();
+        var u = Unique();
+        var storeId = "U" + u;
+        await AddProductAsync("מוצר " + u, 100, "Ring " + u, storeId);
+
+        var original = StoreOrder("41" + u, 0, Line("Ring " + u, storeId, 100));
+        await WithOrders(s => s.ImportStoreOrderAsync(original));
+        var order = (await WithOrders(s => s.GetPendingOrdersAsync())).Single(o => o.ExternalName == "#41" + u);
+
+        // The store announces an update that changes nothing the owner sees (a tag, a shipping step).
+        Assert.False(await WithOrders(s => s.ApplyStoreChangeAsync("41" + u, StoreOrderAlert.Updated, original.Fingerprint())));
+        Assert.Equal(StoreOrderAlert.None, (await WithOrders(s => s.GetOrderAsync(order.Id))).StoreAlert);
+
+        // A real change: the quantity went up.
+        var changed = original with { Lines = [original.Lines[0] with { Quantity = 2 }] };
+        Assert.True(await WithOrders(s => s.ApplyStoreChangeAsync("41" + u, StoreOrderAlert.Updated, changed.Fingerprint())));
+        Assert.Equal(StoreOrderAlert.Updated, (await WithOrders(s => s.GetOrderAsync(order.Id))).StoreAlert);
+
+        // The same update arriving again does not raise it a second time.
+        Assert.False(await WithOrders(s => s.ApplyStoreChangeAsync("41" + u, StoreOrderAlert.Updated, changed.Fingerprint())));
+
+        // A cancellation replaces it, and a later update cannot hide the cancellation.
+        await WithOrders(s => s.ApplyStoreChangeAsync("41" + u, StoreOrderAlert.Cancelled));
+        var again = original with { Lines = [original.Lines[0] with { Quantity = 3 }] };
+        await WithOrders(s => s.ApplyStoreChangeAsync("41" + u, StoreOrderAlert.Updated, again.Fingerprint()));
+        Assert.Equal(StoreOrderAlert.Cancelled, (await WithOrders(s => s.GetOrderAsync(order.Id))).StoreAlert);
+    }
+
+    [Fact]
+    public async Task ADeletion_IsFlagged_AndAnOrderWeNeverReceivedIsIgnored()
+    {
+        await EnsureSetupAsync();
+        var u = Unique();
+        var storeId = "D" + u;
+        await AddProductAsync("מוצר " + u, 100, "Ring " + u, storeId);
+        var order = await ImportKnownAsync("51" + u, storeId);
+
+        Assert.True(await WithOrders(s => s.ApplyStoreChangeAsync("51" + u, StoreOrderAlert.Deleted)));
+        Assert.Equal(StoreOrderAlert.Deleted, (await WithOrders(s => s.GetOrderAsync(order.Id))).StoreAlert);
+
+        // A change to an order that was never imported must not create one.
+        Assert.False(await WithOrders(s => s.ApplyStoreChangeAsync("never-" + u, StoreOrderAlert.Cancelled)));
+        await using var db = pg.NewDb();
+        Assert.False(await db.Orders.AnyAsync(o => o.ExternalId == "never-" + u));
+    }
+
+    [Fact]
+    public async Task Attention_CountsWaitingOrdersAndStoreWarnings_OnceEach()
+    {
+        await EnsureSetupAsync();
+        var u = Unique();
+        var storeId = "A" + u;
+        await AddProductAsync("מוצר " + u, 100, "Ring " + u, storeId);
+
+        var before = await WithOrders(s => s.GetAttentionAsync());
+
+        var order = await ImportKnownAsync("61" + u, storeId);
+        var afterNew = await WithOrders(s => s.GetAttentionAsync());
+        Assert.Equal(before.Pending + 1, afterNew.Pending);
+        Assert.Equal(before.Total + 1, afterNew.Total);
+
+        // Waiting and flagged is still one order to look at.
+        await WithOrders(s => s.ApplyStoreChangeAsync("61" + u, StoreOrderAlert.Cancelled));
+        var flagged = await WithOrders(s => s.GetAttentionAsync());
+        Assert.Equal(before.Alerts + 1, flagged.Alerts);
+        Assert.Equal(before.Total + 1, flagged.Total);
+
+        // Rejecting it removes it from every count.
+        await RunOrders(s => s.DeleteOrderAsync(order.Id));
+        var done = await WithOrders(s => s.GetAttentionAsync());
+        Assert.Equal(before.Total, done.Total);
+        Assert.Equal(before.Alerts, done.Alerts);
+    }
+
     // ── Webhook: which business ──────────────────────────────────────────────
 
     [Fact]

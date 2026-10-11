@@ -1,5 +1,6 @@
 using JewelryManager.Api.Auth;
 using JewelryManager.Api.Data;
+using JewelryManager.Api.Data.Entities;
 using JewelryManager.Api.Features.Orders;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -11,6 +12,10 @@ public enum StoreOrderImportResult
     Created,
     Duplicate,
     NoBusiness,
+
+    // A later change from the store: the order we have was flagged, or there was nothing to flag.
+    Marked,
+    Ignored,
 }
 
 /// <summary>
@@ -27,6 +32,18 @@ public class ShopifyOrderImportService(
 
         tenant.UseBusiness(businessId.Value);
         return await orders.ImportStoreOrderAsync(incoming) ? StoreOrderImportResult.Created : StoreOrderImportResult.Duplicate;
+    }
+
+    /// <summary>Marks an order we already have as cancelled, deleted or changed in the store (a warning only).</summary>
+    public async Task<StoreOrderImportResult> ApplyChangeAsync(string externalId, StoreOrderAlert alert, string? fingerprint = null)
+    {
+        var businessId = await ResolveBusinessAsync();
+        if (businessId is null) return StoreOrderImportResult.NoBusiness;
+
+        tenant.UseBusiness(businessId.Value);
+        return await orders.ApplyStoreChangeAsync(externalId, alert, fingerprint)
+            ? StoreOrderImportResult.Marked
+            : StoreOrderImportResult.Ignored;
     }
 
     // The business is the one whose Shopify settings name this store; with a single business there is no doubt.

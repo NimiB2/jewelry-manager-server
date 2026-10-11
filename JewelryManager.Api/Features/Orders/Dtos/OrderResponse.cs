@@ -40,7 +40,13 @@ public record OrderResponse(
     List<OrderItemResponse> Items,
     // The store's display name ("#1001") and whether the owner still has to approve the order.
     string? ExternalName = null,
-    bool IsPendingApproval = false);
+    bool IsPendingApproval = false,
+    // What the store reported after the order arrived (cancelled, deleted, changed). A warning only.
+    StoreOrderAlert StoreAlert = StoreOrderAlert.None,
+    DateTime? StoreAlertAt = null);
+
+/// <summary>What needs the owner's attention: orders waiting for approval and orders the store changed.</summary>
+public record OrdersAttentionResponse(int Pending, int Alerts, int Total);
 
 /// <summary>Totals over exactly the orders the list is showing (e.g. one month).</summary>
 public record OrdersSummary(int Count, decimal TotalFinalAmount);

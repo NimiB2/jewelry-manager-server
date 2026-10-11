@@ -46,6 +46,20 @@ public static class ShopifyOrderParser
     private const int MaxLines = 100;
     private const decimal MaxMoney = 100_000_000m;
 
+    /// <summary>The order id alone. A deletion webhook carries nothing else, so it cannot go through Parse.</summary>
+    public static string? ParseId(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            return doc.RootElement.ValueKind == JsonValueKind.Object ? Text(doc.RootElement, "id", 40) : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
     public static IncomingOrder? Parse(string json)
     {
         try

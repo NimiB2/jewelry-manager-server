@@ -340,6 +340,78 @@ public class OrdersService(AppDbContext db, CurrentUserAccessor tenant)
         return true;
     }
 
+    /// <summary>
+    /// Records that the store cancelled, deleted or changed an order we already have. It is a warning only:
+    /// income and tasks are never touched, the owner decides. A store order we never received is ignored.
+    /// Returns true when the order was marked.
+    /// </summary>
+    public async Task<bool> ApplyStoreChangeAsync(string externalId, StoreOrderAlert alert, string? fingerprint = null)
+    {
+        var businessId = tenant.GetBusinessId();
+        var order = await db.Orders.FirstOrDefaultAsync(
+            o => o.BusinessId == businessId && o.ExternalId == externalId && !o.IsDeleted);
+        if (order is null) return false;
+
+        var now = DateTime.UtcNow;
+
+        if (alert == StoreOrderAlert.Updated)
+        {
+            // Orders received before fingerprints existed: learn the print, and do not raise a false alarm.
+            if (order.StoreFingerprint is null)
+            {
+                order.StoreFingerprint = fingerprint;
+                await db.SaveChangesAsync();
+                return false;
+            }
+
+            // Fulfilment, tags and payment status also trigger "updated"; they change nothing the owner sees.
+            if (fingerprint is null || order.StoreFingerprint == fingerprint) return false;
+
+            order.StoreFingerprint = fingerprint;
+
+            // A change never hides a cancellation or a deletion that is already waiting.
+            if (order.StoreAlert is StoreOrderAlert.Cancelled or StoreOrderAlert.Deleted)
+            {
+                await db.SaveChangesAsync();
+                return false;
+            }
+        }
+        else if (order.StoreAlert == StoreOrderAlert.Deleted)
+        {
+            return false;
+        }
+
+        order.StoreAlert = alert;
+        order.StoreAlertAt = now;
+        await db.SaveChangesAsync();
+        return true;
+    }
+
+    /// <summary>The owner has seen the store's warning; the order itself is left exactly as it is.</summary>
+    public async Task<OrderResponse> DismissStoreAlertAsync(Guid id)
+    {
+        var order = await FindOrThrowAsync(id, asNoTracking: false);
+        order.StoreAlert = StoreOrderAlert.None;
+        order.StoreAlertAt = null;
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+
+        return await GetOrderAsync(id);
+    }
+
+    public async Task<OrdersAttentionResponse> GetAttentionAsync()
+    {
+        var businessId = tenant.GetBusinessId();
+        var live = db.Orders.AsNoTracking().Where(o => o.BusinessId == businessId && !o.IsDeleted);
+
+        var pending = await live.CountAsync(o => o.IsPendingApproval);
+        var alerts = await live.CountAsync(o => o.StoreAlert != StoreOrderAlert.None);
+        // An order that is both waiting and flagged is one thing to look at, not two.
+        var total = await live.CountAsync(o => o.IsPendingApproval || o.StoreAlert != StoreOrderAlert.None);
+
+        return new OrdersAttentionResponse(pending, alerts, total);
+    }
+
     public async Task<List<OrderResponse>> GetPendingOrdersAsync()
     {
         var businessId = tenant.GetBusinessId();
@@ -436,6 +508,11 @@ public class OrdersService(AppDbContext db, CurrentUserAccessor tenant)
         var order = await FindOrThrowAsync(id, asNoTracking: false);
         if (!order.IsPendingApproval)
             throw new BadRequestException("ההזמנה כבר אושרה");
+
+        // Approving would put money on the books for a sale the store no longer has. The owner can
+        // dismiss the warning (and then approve) or delete the order.
+        if (order.StoreAlert is StoreOrderAlert.Cancelled or StoreOrderAlert.Deleted)
+            throw new BadRequestException("ההזמנה בוטלה או נמחקה בחנות. אפשר למחוק אותה, או להתעלם מההתראה ואז לאשר");
 
         if (order.Items.Any(i => i.ProductId is null))
             throw new BadRequestException("יש בהזמנה פריטים שעדיין לא זוהו. יש לבחור להם מוצר מהרשימה");
@@ -707,7 +784,7 @@ public class OrdersService(AppDbContext db, CurrentUserAccessor tenant)
                     Math.Round(i.UnitPrice * i.Quantity, 2), i.WorkHours, i.Note,
                     i.ExternalProductId, o.IsPendingApproval && i.ProductId is null))
                 .ToList(),
-            o.ExternalName, o.IsPendingApproval);
+            o.ExternalName, o.IsPendingApproval, o.StoreAlert, o.StoreAlertAt);
     }
 
     private record SnapshotSettings(decimal LaborHourRate, string TestPrefix, Dictionary<string, decimal> MaterialHours);

@@ -26,6 +26,13 @@ public class OrdersController(OrdersService service) : ControllerBase
     public Task<OrderResponse> LinkLine(Guid id, Guid lineId, LinkLineProductDto dto) =>
         service.LinkLineAsync(id, lineId, dto.ProductId, dto.Replace);
 
+    /// <summary>How many orders need a look: waiting for approval, or changed/cancelled in the store.</summary>
+    [HttpGet("attention")]
+    public Task<OrdersAttentionResponse> GetAttention() => service.GetAttentionAsync();
+
+    [HttpPost("{id:guid}/dismiss-alert")]
+    public Task<OrderResponse> DismissAlert(Guid id) => service.DismissStoreAlertAsync(id);
+
     [HttpPost("{id:guid}/approve")]
     public Task<OrderResponse> Approve(Guid id) => service.ApproveAsync(id);
 
