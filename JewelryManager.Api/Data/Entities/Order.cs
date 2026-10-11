@@ -28,6 +28,15 @@ public class Order
     public string? ExternalId { get; set; }
     public string? ExternalName { get; set; }
 
+    // Set when the store reports a change after the order was received. It is a warning only: the books
+    // are never touched by the store, the owner decides. Cleared when the owner dismisses it.
+    public StoreOrderAlert StoreAlert { get; set; } = StoreOrderAlert.None;
+    public DateTime? StoreAlertAt { get; set; }
+
+    // A short hash of the order as the store last sent it, to tell a real change from store noise
+    // (fulfilment, tags, payment status). Null for orders that did not come from the store.
+    public string? StoreFingerprint { get; set; }
+
     // An order from the store waits for the owner's approval before it counts (income, task).
     public bool IsPendingApproval { get; set; }
 

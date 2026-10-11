@@ -13,6 +13,15 @@ public enum OrderSource
     Shopify,
 }
 
+/// <summary>What the store told us about an order after we received it. Only ever a warning for the owner.</summary>
+public enum StoreOrderAlert
+{
+    None,
+    Updated,
+    Cancelled,
+    Deleted,
+}
+
 public enum OrderStatus
 {
     New,

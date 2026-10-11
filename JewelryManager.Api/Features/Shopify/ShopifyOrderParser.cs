@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 namespace JewelryManager.Api.Features.Shopify;
@@ -18,7 +20,25 @@ public record IncomingOrder(
     decimal TotalDiscounts,
     string? Currency,
     string? Note,
-    IReadOnlyList<IncomingLine> Lines);
+    IReadOnlyList<IncomingLine> Lines)
+{
+    /// <summary>
+    /// A hash of what matters to the owner (lines, amounts, customer, note). The store also announces
+    /// changes that do not matter here (shipping, tags, payment), and those must leave it unchanged.
+    /// </summary>
+    public string Fingerprint()
+    {
+        var inv = CultureInfo.InvariantCulture;
+        var lines = Lines
+            .OrderBy(l => l.ExternalLineId, StringComparer.Ordinal)
+            .Select(l => $"{l.ExternalLineId}|{l.ExternalProductId}|{l.Title}|{l.VariantTitle}|{l.Quantity}|{l.UnitPrice.ToString("0.00", inv)}");
+
+        var text = string.Join('\n', lines)
+            + $"\n#{Total.ToString("0.00", inv)}|{TotalDiscounts.ToString("0.00", inv)}|{Customer}|{Note}";
+
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text))).ToLowerInvariant()[..32];
+    }
+}
 
 /// <summary>Reads the orders/create webhook body. Anything that is not a usable order gives null.</summary>
 public static class ShopifyOrderParser

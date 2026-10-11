@@ -290,6 +290,7 @@ public class OrdersService(AppDbContext db, CurrentUserAccessor tenant)
             Notes = string.IsNullOrWhiteSpace(incoming.Note) ? null : incoming.Note.Trim(),
             Source = OrderSource.Shopify, Status = OrderStatus.New, IsPendingApproval = true,
             ExternalId = incoming.ExternalId, ExternalName = incoming.DisplayName,
+            StoreFingerprint = incoming.Fingerprint(),
             LaborHourRate = settings.LaborHourRate, CreatedAt = now, UpdatedAt = now,
         };
 
