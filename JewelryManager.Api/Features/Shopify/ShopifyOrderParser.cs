@@ -10,6 +10,12 @@ namespace JewelryManager.Api.Features.Shopify;
 public record IncomingLine(
     string ExternalLineId, string Title, string? VariantTitle, string? Sku, int Quantity, decimal UnitPrice, string? ExternalProductId = null);
 
+/// <summary>
+/// A discount the store applied: a coupon (Label is the code) or an automatic/manual one (Label is its name).
+/// Lines are the titles of the items it was taken off.
+/// </summary>
+public record IncomingDiscount(string Label, bool IsCoupon, IReadOnlyList<string> Lines);
+
 /// <summary>An order as Shopify sent it, reduced to what this system uses. All text is already trimmed and bounded.</summary>
 public record IncomingOrder(
     string ExternalId,
@@ -21,10 +27,29 @@ public record IncomingOrder(
     string? Currency,
     string? Note,
     IReadOnlyList<IncomingLine> Lines,
-    // The store's payment state ("paid", "pending", "refunded"...), and the coupon codes that were used.
+    // The store's payment state ("paid", "pending", "refunded"...), and the discounts that were applied.
     string? FinancialStatus = null,
-    IReadOnlyList<string>? DiscountCodes = null)
+    IReadOnlyList<IncomingDiscount>? Discounts = null)
 {
+    /// <summary>
+    /// Why the price went down, in the owner's words: the coupon code or the sale's name, and which items
+    /// it was on when it was not the whole order. Null when the store named no discount.
+    /// </summary>
+    public string? DiscountReason()
+    {
+        if (Discounts is not { Count: > 0 }) return null;
+
+        var parts = Discounts.Select(d =>
+        {
+            var name = d.IsCoupon ? $"קופון {d.Label}" : d.Label;
+            var partial = d.Lines.Count > 0 && d.Lines.Count < Lines.Count;
+            return partial ? $"{name} (על: {string.Join(", ", d.Lines)})" : name;
+        });
+
+        var text = string.Join(" · ", parts);
+        return text.Length > 300 ? text[..300] : text;
+    }
+
     /// <summary>Only a fully paid order is of interest; the others wait for the store's "paid" event.</summary>
     public bool IsPaid => string.Equals(FinancialStatus, "paid", StringComparison.OrdinalIgnoreCase);
 
@@ -106,7 +131,7 @@ public static class ShopifyOrderParser
                 Text(root, "note", 2_000),
                 lines,
                 Text(root, "financial_status", 30),
-                DiscountCodes(root));
+                Discounts(root, items));
         }
         catch (JsonException)
         {
@@ -148,18 +173,58 @@ public static class ShopifyOrderParser
             : DateOnly.FromDateTime(DateTime.UtcNow);
     }
 
-    // The coupon codes the customer used; a code is only a label for the owner, so odd ones are skipped.
-    private static List<string> DiscountCodes(JsonElement root)
+    // The discounts that took money off the items. Shopify lists each one (a coupon, an automatic sale, a
+    // manual discount) in discount_applications, and each line says which of them it received. A discount on
+    // shipping is not part of the order amount here, so it is skipped. Older payloads only have the codes.
+    private static List<IncomingDiscount> Discounts(JsonElement root, JsonElement items)
     {
-        var codes = new List<string>();
-        if (!root.TryGetProperty("discount_codes", out var list) || list.ValueKind != JsonValueKind.Array) return codes;
+        var result = new List<IncomingDiscount>();
 
-        foreach (var entry in list.EnumerateArray().Take(10))
+        if (root.TryGetProperty("discount_applications", out var applications) && applications.ValueKind == JsonValueKind.Array)
         {
-            if (entry.ValueKind == JsonValueKind.Object && Text(entry, "code", 60) is { } code) codes.Add(code);
+            var index = 0;
+            foreach (var application in applications.EnumerateArray().Take(20))
+            {
+                var current = index++;
+                if (application.ValueKind != JsonValueKind.Object) continue;
+                if (Text(application, "target_type", 30) == "shipping_line") continue;
+
+                var coupon = Text(application, "type", 30) == "discount_code";
+                var label = coupon ? Text(application, "code", 60) : Text(application, "title", 100) ?? Text(application, "description", 100);
+                if (label is null) continue;
+
+                var lines = new List<string>();
+                foreach (var item in items.EnumerateArray())
+                {
+                    if (!item.TryGetProperty("discount_allocations", out var allocations) || allocations.ValueKind != JsonValueKind.Array) continue;
+                    var title = Text(item, "title", 100) ?? Text(item, "name", 100);
+                    if (title is null) continue;
+
+                    foreach (var allocation in allocations.EnumerateArray())
+                    {
+                        if (allocation.TryGetProperty("discount_application_index", out var at) && at.TryGetInt32(out var i)
+                            && i == current && Money(allocation, "amount") is > 0)
+                        {
+                            lines.Add(title);
+                            break;
+                        }
+                    }
+                }
+
+                result.Add(new IncomingDiscount(label, coupon, lines));
+            }
         }
 
-        return codes;
+        if (result.Count == 0 && root.TryGetProperty("discount_codes", out var codes) && codes.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var entry in codes.EnumerateArray().Take(10))
+            {
+                if (entry.ValueKind == JsonValueKind.Object && Text(entry, "code", 60) is { } code)
+                    result.Add(new IncomingDiscount(code, true, []));
+            }
+        }
+
+        return result;
     }
 
     private static string? CustomerName(JsonElement root)

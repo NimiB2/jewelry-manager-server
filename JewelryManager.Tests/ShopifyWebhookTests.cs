@@ -100,14 +100,42 @@ public class ShopifyWebhookTests
         Assert.False(ShopifyOrderParser.Parse(Sample)!.IsPaid);
 
     [Fact]
-    public void Parse_ReadsTheCouponCodes()
+    public void Parse_ReadsACouponAndAnAutomaticSale_AndWhichItemsTheyWereOn()
+    {
+        var json = Sample.Replace(
+            "\"currency\": \"ILS\",",
+            "\"currency\": \"ILS\", \"discount_applications\": ["
+            + "{ \"type\": \"discount_code\", \"code\": \"SPRING10\", \"target_type\": \"line_item\" },"
+            + "{ \"type\": \"automatic\", \"title\": \"מבצע קיץ\", \"target_type\": \"line_item\" },"
+            + "{ \"type\": \"automatic\", \"title\": \"משלוח חינם\", \"target_type\": \"shipping_line\" }],")
+            .Replace(
+                "\"quantity\": 2, \"price\": \"150.00\" }",
+                "\"quantity\": 2, \"price\": \"150.00\", \"discount_allocations\": ["
+                + "{ \"amount\": \"10.00\", \"discount_application_index\": 0 },"
+                + "{ \"amount\": \"10.00\", \"discount_application_index\": 1 }] }");
+
+        var order = ShopifyOrderParser.Parse(json)!;
+
+        // Shipping discounts are not part of the order amount; the coupon is named by its code.
+        Assert.Equal(2, order.Discounts!.Count);
+        Assert.True(order.Discounts[0].IsCoupon);
+        Assert.Equal("SPRING10", order.Discounts[0].Label);
+        Assert.Equal(["טבעת כסף"], order.Discounts[0].Lines);
+        Assert.False(order.Discounts[1].IsCoupon);
+
+        // Only one of the two items had them, so the reason says which.
+        Assert.Equal("קופון SPRING10 (על: טבעת כסף) · מבצע קיץ (על: טבעת כסף)", order.DiscountReason());
+    }
+
+    [Fact]
+    public void Parse_FallsBackToTheCouponCodes_WhenThereAreNoDiscountApplications()
     {
         var json = Sample.Replace(
             "\"currency\": \"ILS\",",
             "\"currency\": \"ILS\", \"discount_codes\": [ { \"code\": \"SPRING10\", \"amount\": \"20.00\" }, { \"amount\": \"1\" } ],");
 
-        Assert.Equal(["SPRING10"], ShopifyOrderParser.Parse(json)!.DiscountCodes);
-        Assert.Empty(ShopifyOrderParser.Parse(Sample)!.DiscountCodes!);
+        Assert.Equal("קופון SPRING10", ShopifyOrderParser.Parse(json)!.DiscountReason());
+        Assert.Null(ShopifyOrderParser.Parse(Sample)!.DiscountReason());
     }
 
     [Fact]

@@ -497,7 +497,7 @@ public class ShopifyTests(PostgresFixture pg)
             return await service.ImportAsync(order);
         }
 
-        var paid = StoreOrder("71" + u, 10, Line("Ring " + u, "P" + u, 100)) with { DiscountCodes = ["SPRING10"] };
+        var paid = StoreOrder("71" + u, 10, Line("Ring " + u, "P" + u, 100)) with { Discounts = [new IncomingDiscount("SPRING10", true, [])] };
         var unpaid = paid with { FinancialStatus = "pending" };
 
         // Created but not paid: nothing appears for the owner.
@@ -507,7 +507,7 @@ public class ShopifyTests(PostgresFixture pg)
         // The store announces the payment (the same order again, now paid): it arrives, with the coupon.
         Assert.Equal(StoreOrderImportResult.Created, await Import(paid));
         var order = (await WithOrders(s => s.GetPendingOrdersAsync())).Single(o => o.ExternalName == "#71" + u);
-        Assert.Equal("קופון: SPRING10", order.DiscountReason);
+        Assert.Equal("קופון SPRING10", order.DiscountReason);
         Assert.Equal(90m, order.FinalAmount);
 
         // A discount without a coupon keeps the plain wording.
