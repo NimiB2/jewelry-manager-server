@@ -11,7 +11,7 @@ namespace JewelryManager.Api.Common.Filters;
 /// This is the single place where exception → HTTP happens.
 /// Controllers and services never deal with status codes directly.
 /// </summary>
-public class GlobalExceptionFilter : IExceptionFilter
+public class GlobalExceptionFilter(ILogger<GlobalExceptionFilter> logger) : IExceptionFilter
 {
     public void OnException(ExceptionContext context)
     {
@@ -33,6 +33,11 @@ public class GlobalExceptionFilter : IExceptionFilter
             ForbiddenException ex  => (StatusCodes.Status403Forbidden,      ex.Message),
             _                      => (StatusCodes.Status500InternalServerError, "An unexpected error occurred"),
         };
+
+        // The client only sees a generic message, so the real cause must reach the server log.
+        if (status == StatusCodes.Status500InternalServerError)
+            logger.LogError(context.Exception, "Unhandled error in {Method} {Path}",
+                context.HttpContext.Request.Method, context.HttpContext.Request.Path);
 
         context.Result = new ObjectResult(new { error = message })
         {
