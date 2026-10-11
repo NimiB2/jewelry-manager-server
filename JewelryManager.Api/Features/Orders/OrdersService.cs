@@ -331,7 +331,9 @@ public class OrdersService(AppDbContext db, CurrentUserAccessor tenant)
         order.Amount = amount;
         order.FinalAmount = amount - discount;
         order.HasDiscount = discount > 0;
-        order.DiscountReason = discount > 0 ? "הנחה מהחנות" : null;
+        order.DiscountReason = discount > 0
+            ? incoming.DiscountCodes is { Count: > 0 } codes ? $"קופון: {string.Join(", ", codes)}" : "הנחה מהחנות"
+            : null;
 
         db.Orders.Add(order);
         await db.SaveChangesAsync();

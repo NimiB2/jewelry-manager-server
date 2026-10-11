@@ -31,14 +31,24 @@ Save Changes, והשרת יופעל מחדש.
 2. "קישור כל ההתאמות הברורות", ואז עוברים על השאר: בחירה מהרשימה, או "הוספה כמוצר חדש".
 3. מוצר שנוסף נשמר עם שם ומחיר בלבד ועם התג "חסרים פרטים". משלימים סוג וחומר כשנוח.
 
-## 4. ה-webhook של הזמנות חדשות
-ב-Shopify Admin: **Settings ← Notifications ← Webhooks ← Create webhook**:
+## 4. ה-webhooks של ההזמנות
+ב-Shopify Admin: **Settings ← Notifications ← Webhooks ← Create webhook**, ארבע פעמים, **כולם לאותה כתובת**:
 
-| שדה | ערך |
+| Event | מה המערכת עושה |
 |---|---|
-| Event | **Order creation** |
-| Format | **JSON** |
-| URL | `https://<כתובת-השרת>/webhooks/shopify/orders` |
+| **Order creation** | הזמנה חדשה. נכנסת לאזור האישור **רק אם שולמה** |
+| **Order payment** | הזמנה שלא שולמה בזמן היצירה (למשל העברה בנקאית) ושולמה אחר כך. רק אז היא נכנסת |
+| **Order cancellation** | מסמנת את ההזמנה באזהרה אדומה. לא נוגעת בהכנסה |
+| **Order update** | מסמנת "עודכנה בחנות" רק אם משהו מהותי השתנה (פריטים, כמויות, מחיר, סכום, לקוח, הערה) |
+| **Order deletion** | מסמנת "נמחקה בחנות" |
+
+בכל ארבעת האירועים: Format **JSON**, גרסה **2026-07**, וכתובת:
+
+`https://<כתובת-השרת>/webhooks/shopify/orders`
+
+השרת מבדיל בין האירועים לפי כותרת ש-Shopify שולחת, ולכן הכתובת זהה. אותו סוד חתימה לכולם.
+
+> שינוי בחנות אף פעם לא משנה הכנסה או משימה אוטומטית. הוא רק מסמן את ההזמנה, וההחלטה שלך.
 
 ## 5. בדיקה
 1. מבצעים הזמנת ניסיון בחנות.
@@ -54,4 +64,6 @@ Save Changes, והשרת יופעל מחדש.
 | `Shopify webhook rejected: unexpected shop` | `Shopify__ShopDomain` לא תואם לחנות ששלחה |
 | `Shopify order #...: Created` | ההזמנה התקבלה |
 | `Shopify order #...: Duplicate` | כבר התקבלה (Shopify שלחה שוב) |
+| `Shopify order #...: NotPaid` | ההזמנה לא שולמה, ולכן הושארה בחוץ בכוונה. תיכנס כשהחנות תכריז על תשלום |
+| `Shopify order <id> orders/...: Marked` | ההזמנה סומנה באזהרה |
 | `Shopify webhook ignored` | ההודעה חתומה אבל אינה הזמנה תקינה |

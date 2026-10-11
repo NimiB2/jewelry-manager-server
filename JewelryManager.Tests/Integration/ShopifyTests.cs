@@ -34,7 +34,7 @@ public class ShopifyTests(PostgresFixture pg)
 
     private static IncomingOrder StoreOrder(string externalId, decimal discount, params IncomingLine[] lines) =>
         new(externalId, "#" + externalId, new DateOnly(2026, 10, 10), "דנה כהן",
-            lines.Sum(l => l.UnitPrice * l.Quantity) - discount, discount, "ILS", null, lines);
+            lines.Sum(l => l.UnitPrice * l.Quantity) - discount, discount, "ILS", null, lines, "paid");
 
     private async Task EnsureSetupAsync()
     {
@@ -472,5 +472,47 @@ public class ShopifyTests(PostgresFixture pg)
         await using var other = pg.NewDb();
         var otherOrders = await new OrdersService(other, PostgresFixture.TenantFor(pg.BusinessJ)).GetPendingOrdersAsync();
         Assert.DoesNotContain(otherOrders, o => o.Items.Any(i => i.ExternalProductId == "W" + u));
+    }
+
+    [Fact]
+    public async Task AnUnpaidOrder_IsLeftOut_UntilTheStoreAnnouncesPayment_AndACouponNamesTheDiscount()
+    {
+        await EnsureSetupAsync();
+        var u = Unique();
+        var domain = $"paid-{u}.myshopify.com";
+
+        await using (var db = pg.NewDb())
+        {
+            var business = await db.Businesses.SingleAsync(b => b.Id == Business);
+            business.ShopifySettings = $$"""{"shopDomain":"{{domain}}"}""";
+            await db.SaveChangesAsync();
+        }
+
+        async Task<StoreOrderImportResult> Import(IncomingOrder order)
+        {
+            await using var db = pg.NewDb();
+            var tenant = new CurrentUserAccessor(new HttpContextAccessor { HttpContext = new DefaultHttpContext() });
+            var service = new ShopifyOrderImportService(
+                db, tenant, new OrdersService(db, tenant), Options.Create(new ShopifyOptions { ShopDomain = domain, WebhookSecret = "s" }));
+            return await service.ImportAsync(order);
+        }
+
+        var paid = StoreOrder("71" + u, 10, Line("Ring " + u, "P" + u, 100)) with { DiscountCodes = ["SPRING10"] };
+        var unpaid = paid with { FinancialStatus = "pending" };
+
+        // Created but not paid: nothing appears for the owner.
+        Assert.Equal(StoreOrderImportResult.NotPaid, await Import(unpaid));
+        Assert.DoesNotContain(await WithOrders(s => s.GetPendingOrdersAsync()), o => o.ExternalName == "#71" + u);
+
+        // The store announces the payment (the same order again, now paid): it arrives, with the coupon.
+        Assert.Equal(StoreOrderImportResult.Created, await Import(paid));
+        var order = (await WithOrders(s => s.GetPendingOrdersAsync())).Single(o => o.ExternalName == "#71" + u);
+        Assert.Equal("קופון: SPRING10", order.DiscountReason);
+        Assert.Equal(90m, order.FinalAmount);
+
+        // A discount without a coupon keeps the plain wording.
+        var plain = StoreOrder("72" + u, 10, Line("Ring " + u, "P" + u, 100));
+        Assert.Equal(StoreOrderImportResult.Created, await Import(plain));
+        Assert.Equal("הנחה מהחנות", (await WithOrders(s => s.GetPendingOrdersAsync())).Single(o => o.ExternalName == "#72" + u).DiscountReason);
     }
 }

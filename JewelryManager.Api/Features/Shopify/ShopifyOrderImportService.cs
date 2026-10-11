@@ -13,6 +13,9 @@ public enum StoreOrderImportResult
     Duplicate,
     NoBusiness,
 
+    // The order exists in the store but is not paid (yet), so it was left out on purpose.
+    NotPaid,
+
     // A later change from the store: the order we have was flagged, or there was nothing to flag.
     Marked,
     Ignored,
@@ -27,6 +30,9 @@ public class ShopifyOrderImportService(
 {
     public async Task<StoreOrderImportResult> ImportAsync(IncomingOrder incoming)
     {
+        // An order that is not paid yet is not a sale. It is picked up when the store announces the payment.
+        if (!incoming.IsPaid) return StoreOrderImportResult.NotPaid;
+
         var businessId = await ResolveBusinessAsync();
         if (businessId is null) return StoreOrderImportResult.NoBusiness;
 

@@ -50,7 +50,8 @@ public class ShopifyWebhookController(
 
         return topic switch
         {
-            "" or "orders/create" => await ReceiveNewOrder(json),
+            // "paid" carries the same full order: an order that was unpaid at creation arrives here once paid.
+            "" or "orders/create" or "orders/paid" => await ReceiveNewOrder(json),
             "orders/cancelled" => await ReceiveChange(json, StoreOrderAlert.Cancelled, topic),
             "orders/updated" => await ReceiveChange(json, StoreOrderAlert.Updated, topic),
             "orders/delete" => await ReceiveChange(json, StoreOrderAlert.Deleted, topic),

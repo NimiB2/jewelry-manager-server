@@ -20,8 +20,14 @@ public record IncomingOrder(
     decimal TotalDiscounts,
     string? Currency,
     string? Note,
-    IReadOnlyList<IncomingLine> Lines)
+    IReadOnlyList<IncomingLine> Lines,
+    // The store's payment state ("paid", "pending", "refunded"...), and the coupon codes that were used.
+    string? FinancialStatus = null,
+    IReadOnlyList<string>? DiscountCodes = null)
 {
+    /// <summary>Only a fully paid order is of interest; the others wait for the store's "paid" event.</summary>
+    public bool IsPaid => string.Equals(FinancialStatus, "paid", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>
     /// A hash of what matters to the owner (lines, amounts, customer, note). The store also announces
     /// changes that do not matter here (shipping, tags, payment), and those must leave it unchanged.
@@ -98,7 +104,9 @@ public static class ShopifyOrderParser
                 Money(root, "total_discounts") ?? 0m,
                 Text(root, "currency", 10),
                 Text(root, "note", 2_000),
-                lines);
+                lines,
+                Text(root, "financial_status", 30),
+                DiscountCodes(root));
         }
         catch (JsonException)
         {
@@ -138,6 +146,20 @@ public static class ShopifyOrderParser
         return DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.None, out var created)
             ? DateOnly.FromDateTime(created.DateTime)
             : DateOnly.FromDateTime(DateTime.UtcNow);
+    }
+
+    // The coupon codes the customer used; a code is only a label for the owner, so odd ones are skipped.
+    private static List<string> DiscountCodes(JsonElement root)
+    {
+        var codes = new List<string>();
+        if (!root.TryGetProperty("discount_codes", out var list) || list.ValueKind != JsonValueKind.Array) return codes;
+
+        foreach (var entry in list.EnumerateArray().Take(10))
+        {
+            if (entry.ValueKind == JsonValueKind.Object && Text(entry, "code", 60) is { } code) codes.Add(code);
+        }
+
+        return codes;
     }
 
     private static string? CustomerName(JsonElement root)

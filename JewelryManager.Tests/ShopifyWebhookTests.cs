@@ -79,6 +79,37 @@ public class ShopifyWebhookTests
         Assert.Null(order.Lines[1].Sku);
     }
 
+    [Theory]
+    [InlineData("paid", true)]
+    [InlineData("PAID", true)]
+    [InlineData("pending", false)]
+    [InlineData("authorized", false)]
+    [InlineData("partially_paid", false)]
+    [InlineData("refunded", false)]
+    public void Parse_ReadsThePaymentStatus_AndOnlyPaidCounts(string status, bool paid)
+    {
+        var json = Sample.Replace("\"currency\": \"ILS\",", $"\"currency\": \"ILS\", \"financial_status\": \"{status}\",");
+        var order = ShopifyOrderParser.Parse(json)!;
+
+        Assert.Equal(status, order.FinancialStatus);
+        Assert.Equal(paid, order.IsPaid);
+    }
+
+    [Fact]
+    public void Parse_AnOrderWithoutAPaymentStatus_IsNotPaid() =>
+        Assert.False(ShopifyOrderParser.Parse(Sample)!.IsPaid);
+
+    [Fact]
+    public void Parse_ReadsTheCouponCodes()
+    {
+        var json = Sample.Replace(
+            "\"currency\": \"ILS\",",
+            "\"currency\": \"ILS\", \"discount_codes\": [ { \"code\": \"SPRING10\", \"amount\": \"20.00\" }, { \"amount\": \"1\" } ],");
+
+        Assert.Equal(["SPRING10"], ShopifyOrderParser.Parse(json)!.DiscountCodes);
+        Assert.Empty(ShopifyOrderParser.Parse(Sample)!.DiscountCodes!);
+    }
+
     [Fact]
     public void Parse_FallsBackToTheShippingNameWhenThereIsNoCustomer()
     {
