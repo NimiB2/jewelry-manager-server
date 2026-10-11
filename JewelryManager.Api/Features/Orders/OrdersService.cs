@@ -400,6 +400,114 @@ public class OrdersService(AppDbContext db, CurrentUserAccessor tenant)
     }
 
     /// <summary>
+    /// Brings in an order that already happened in the store (from its export), as a finished sale: it counts
+    /// in the books at once and needs no approval. Fulfilled orders arrive completed with their receipt marked
+    /// sent and no task (there is nothing left to do); the others arrive as new orders with a task.
+    /// Safe to repeat: an order that is already here is left alone. With dryRun nothing is saved.
+    /// </summary>
+    public async Task<HistoricalImportOutcome> ImportHistoricalOrderAsync(HistoricalOrder old, bool dryRun = false)
+    {
+        var businessId = tenant.GetBusinessId();
+
+        await using var tx = await db.Database.BeginTransactionAsync();
+        var lockKey = $"orders:{businessId}";
+        await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtext({lockKey}))");
+
+        if (await db.Orders.AnyAsync(o => o.BusinessId == businessId && o.ExternalId == old.ExternalId))
+            return new HistoricalImportOutcome(false, 0, []);
+
+        var settings = await LoadSnapshotSettingsAsync();
+        var number = await NextNumberAsync(businessId, IsTestCustomer(old.Customer, settings.TestPrefix));
+
+        // The store's item name is "Title - variant"; the catalog knows the title (its store name, or its own).
+        var products = await db.Products.AsNoTracking().Where(p => p.BusinessId == businessId).ToListAsync();
+        var byStoreName = new Dictionary<string, Product>();
+        foreach (var p in products.Where(p => !string.IsNullOrWhiteSpace(p.ShopifyName)))
+            byStoreName.TryAdd(NormalizeTitle(p.ShopifyName!), p);
+
+        var byOwnName = products.GroupBy(p => NormalizeTitle(p.Name)).Where(g => g.Count() == 1).ToDictionary(g => g.Key, g => g.First());
+
+        var now = DateTime.UtcNow;
+        var order = new Order
+        {
+            Id = Guid.NewGuid(), BusinessId = businessId, Number = number,
+            Date = old.Date,
+            Customer = string.IsNullOrWhiteSpace(old.Customer) ? null : old.Customer.Trim(),
+            Notes = string.IsNullOrWhiteSpace(old.Note) ? null : old.Note.Trim(),
+            Source = OrderSource.Shopify, ExternalId = old.ExternalId, ExternalName = old.DisplayName,
+            Status = old.Fulfilled ? OrderStatus.Completed : OrderStatus.New,
+            IsCompleted = old.Fulfilled,
+            CompletedDate = old.Fulfilled
+                ? (old.CompletedOn ?? old.Date).ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc)
+                : null,
+            // An old order is finished business: no "receipt missing" warning for it.
+            ReceiptSent = old.Fulfilled,
+            LaborHourRate = settings.LaborHourRate, CreatedAt = now, UpdatedAt = now,
+        };
+
+        var unmatched = new List<string>();
+        var matched = 0;
+
+        for (var index = 0; index < old.Lines.Count; index++)
+        {
+            var source = old.Lines[index];
+            var (title, variant, product) = MatchTitle(source.Title, byStoreName, byOwnName);
+
+            if (product is null) unmatched.Add(source.Title);
+            else matched++;
+
+            var line = new OrderLineItem
+            {
+                Id = Guid.NewGuid(), BusinessId = businessId, SortOrder = index,
+                Quantity = source.Quantity, UnitPrice = Math.Round(source.UnitPrice, 2),
+                Note = CleanNote(variant),
+            };
+            ApplyProductSnapshot(line, product, product is null ? source.Title : title, settings);
+            order.Items.Add(line);
+        }
+
+        var amount = order.Items.Sum(l => Math.Round(l.UnitPrice * l.Quantity, 2));
+        var discount = Math.Min(Math.Max(old.Discount, 0), amount);
+        order.Amount = amount;
+        order.FinalAmount = amount - discount;
+        order.HasDiscount = discount > 0;
+        order.DiscountReason = discount > 0 ? (string.IsNullOrWhiteSpace(old.DiscountReason) ? "הנחה מהחנות" : old.DiscountReason.Trim()) : null;
+
+        db.Orders.Add(order);
+        await SyncBooksAsync(order, order.Items, isNew: true, withTask: !old.Fulfilled);
+        await db.SaveChangesAsync();
+
+        if (dryRun) await tx.RollbackAsync();
+        else await tx.CommitAsync();
+
+        db.ChangeTracker.Clear();
+        return new HistoricalImportOutcome(true, matched, unmatched);
+    }
+
+    // The whole name first, then with the last " - option" taken off (a store title may itself contain a dash).
+    private static (string Title, string? Variant, Product? Product) MatchTitle(
+        string storeName, Dictionary<string, Product> byStoreName, Dictionary<string, Product> byOwnName)
+    {
+        var name = storeName.Trim();
+        var candidates = new List<(string Title, string? Variant)> { (name, null) };
+
+        var cut = name.LastIndexOf(" - ", StringComparison.Ordinal);
+        if (cut > 0) candidates.Add((name[..cut].Trim(), name[(cut + 3)..].Trim()));
+
+        foreach (var (title, variant) in candidates)
+        {
+            var key = NormalizeTitle(title);
+            if (byStoreName.TryGetValue(key, out var product) || byOwnName.TryGetValue(key, out product))
+                return (title, variant, product);
+        }
+
+        return (name, null, null);
+    }
+
+    private static string NormalizeTitle(string text) =>
+        string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)).ToLowerInvariant();
+
+    /// <summary>
     /// Orders already on the books that the store later cancelled, deleted or changed. Orders still
     /// waiting for approval show their warning in the approval area instead.
     /// </summary>
@@ -577,7 +685,7 @@ public class OrdersService(AppDbContext db, CurrentUserAccessor tenant)
 
     // A new order adds an income record and a task; later edits keep both in step, and a completed
     // order is locked, so its income is frozen. Demo orders never reach the books.
-    private async Task SyncBooksAsync(Order order, IEnumerable<OrderLineItem> lines, bool isNew)
+    private async Task SyncBooksAsync(Order order, IEnumerable<OrderLineItem> lines, bool isNew, bool withTask = true)
     {
         var businessId = tenant.GetBusinessId();
         var isDemo = IsTestCustomer(order.Customer, await GetTestPrefixAsync());
@@ -597,7 +705,7 @@ public class OrdersService(AppDbContext db, CurrentUserAccessor tenant)
             db.Incomes.Add(OrderIncomeFactory.Create(order, lines));
 
             // Only an order that was not on the books yet gets a task, so it never gets a second one.
-            if (task is null) db.Tasks.Add(NewOrderTask(order, lines));
+            if (task is null && withTask) db.Tasks.Add(NewOrderTask(order, lines));
             return;
         }
 

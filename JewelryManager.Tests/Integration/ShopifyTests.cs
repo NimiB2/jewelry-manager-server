@@ -515,4 +515,80 @@ public class ShopifyTests(PostgresFixture pg)
         Assert.Equal(StoreOrderImportResult.Created, await Import(plain));
         Assert.Equal("הנחה מהחנות", (await WithOrders(s => s.GetPendingOrdersAsync())).Single(o => o.ExternalName == "#72" + u).DiscountReason);
     }
+
+    // ── Old orders from the store's export ───────────────────────────────────
+
+    private static HistoricalOrder Old(string externalId, bool fulfilled, decimal discount, params HistoricalLine[] lines) =>
+        new(externalId, "#" + externalId, new DateOnly(2024, 5, 3), "דנה כהן", discount,
+            discount > 0 ? "קופון OLD10" : null, null, fulfilled, fulfilled ? new DateOnly(2024, 5, 6) : null, lines);
+
+    [Fact]
+    public async Task AnOldFulfilledOrder_ComesInFinished_WithIncomeAndNoTask_AndAnUnfulfilledOneStaysOpenWithATask()
+    {
+        await EnsureSetupAsync();
+        var u = Unique();
+        var product = await AddProductAsync("מוצר " + u, 100, "Gold Ring " + u, "H" + u);
+
+        // "Title - variant": the catalog knows the title, the variant becomes the line's note.
+        var done = Old("81" + u, true, 20, new HistoricalLine("Gold Ring " + u + " - 54", null, 2, 150));
+        var outcome = await WithOrders(s => s.ImportHistoricalOrderAsync(done));
+
+        Assert.True(outcome.Created);
+        Assert.Equal(1, outcome.MatchedLines);
+        Assert.Empty(outcome.UnmatchedTitles);
+
+        var order = (await WithOrders(s => s.GetOrdersAsync("all", null, null, null))).Orders.Single(o => o.ExternalName == "#81" + u);
+        Assert.False(order.IsPendingApproval);
+        Assert.Equal(OrderSource.Shopify, order.Source);
+        Assert.Equal(OrderStatus.Completed, order.Status);
+        Assert.True(order.IsCompleted);
+        Assert.True(order.ReceiptSent);
+        Assert.Equal(new DateOnly(2024, 5, 3), order.Date);
+        Assert.Equal(300m, order.Amount);
+        Assert.Equal(280m, order.FinalAmount);
+        Assert.Equal("קופון OLD10", order.DiscountReason);
+        Assert.Equal(product.Id, order.Items[0].ProductId);
+        Assert.Equal("54", order.Items[0].Note);
+
+        await using (var db = pg.NewDb())
+        {
+            var income = await db.Incomes.SingleAsync(i => i.OrderId == order.Id);
+            Assert.Equal(280m, income.Amount);
+            Assert.Equal(new DateOnly(2024, 5, 3), income.Date);
+            Assert.Equal(0, await db.Tasks.CountAsync(t => t.OrderId == order.Id));
+        }
+
+        // Not fulfilled yet: still something to make, so it is open and has a task.
+        await WithOrders(s => s.ImportHistoricalOrderAsync(Old("82" + u, false, 0, new HistoricalLine("Gold Ring " + u, null, 1, 150))));
+        var open = (await WithOrders(s => s.GetOrdersAsync("all", null, null, null))).Orders.Single(o => o.ExternalName == "#82" + u);
+        Assert.Equal(OrderStatus.New, open.Status);
+        Assert.False(open.IsCompleted);
+        await using (var db = pg.NewDb())
+            Assert.Equal(1, await db.Tasks.CountAsync(t => t.OrderId == open.Id && t.IsAutomatic));
+    }
+
+    [Fact]
+    public async Task AnOldOrder_IsImportedOnce_KeepsTheStoreNameOfAnItemTheCatalogLacks_AndADryRunSavesNothing()
+    {
+        await EnsureSetupAsync();
+        var u = Unique();
+        var old = Old("91" + u, true, 0, new HistoricalLine("Mystery Earrings " + u, null, 1, 80));
+
+        // A dry run reports the same outcome and leaves no trace.
+        var dry = await WithOrders(s => s.ImportHistoricalOrderAsync(old, dryRun: true));
+        Assert.True(dry.Created);
+        Assert.Equal(["Mystery Earrings " + u], dry.UnmatchedTitles);
+        await using (var db = pg.NewDb())
+            Assert.False(await db.Orders.AnyAsync(o => o.ExternalId == "91" + u));
+
+        Assert.True((await WithOrders(s => s.ImportHistoricalOrderAsync(old))).Created);
+        Assert.False((await WithOrders(s => s.ImportHistoricalOrderAsync(old))).Created); // second time: already there
+
+        await using var check = pg.NewDb();
+        var order = await check.Orders.Include(o => o.Items).SingleAsync(o => o.ExternalId == "91" + u);
+        Assert.Null(order.Items.Single().ProductId);
+        Assert.Equal("Mystery Earrings " + u, order.Items.Single().Name);
+        Assert.Equal(80m, order.FinalAmount);
+        Assert.Equal(1, await check.Incomes.CountAsync(i => i.OrderId == order.Id));
+    }
 }
