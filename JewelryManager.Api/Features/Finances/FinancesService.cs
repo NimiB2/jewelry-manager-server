@@ -86,14 +86,26 @@ public class FinancesService(AppDbContext db, CurrentUserAccessor tenant, Expens
 
     /// <summary>
     /// Orders created before finances existed (or whose income row went missing) get their income here.
-    /// Demo orders never count, so test data cannot leak into the books.
+    /// Demo orders never count, so test data cannot leak into the books. Neither does a store order that
+    /// still waits for approval: it is not a sale yet, so it gets no income (and loses one it was given by mistake).
     /// </summary>
     private async Task EnsureIncomeForCompletedOrdersAsync()
     {
         var businessId = tenant.GetBusinessId();
 
+        var premature = await db.Incomes
+            .Where(i => i.BusinessId == businessId && db.Orders.Any(o => o.Id == i.OrderId && o.IsPendingApproval))
+            .ToListAsync();
+        if (premature.Count > 0)
+        {
+            db.Incomes.RemoveRange(premature);
+            await db.SaveChangesAsync();
+            db.ChangeTracker.Clear();
+        }
+
         var missing = await db.Orders.AsNoTracking().Include(o => o.Items)
-            .Where(o => o.BusinessId == businessId && !o.IsDeleted && !db.Incomes.Any(i => i.OrderId == o.Id))
+            .Where(o => o.BusinessId == businessId && !o.IsDeleted && !o.IsPendingApproval
+                        && !db.Incomes.Any(i => i.OrderId == o.Id))
             .ToListAsync();
         if (missing.Count == 0) return;
 

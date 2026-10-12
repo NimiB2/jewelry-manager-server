@@ -647,7 +647,8 @@ public class OrdersService(AppDbContext db, CurrentUserAccessor tenant)
         order.IsPendingApproval = false;
         order.UpdatedAt = DateTime.UtcNow;
 
-        await SyncBooksAsync(order, order.Items, isNew: true);
+        // Not "new": an income or task that already exists for this order is reused, never added twice.
+        await SyncBooksAsync(order, order.Items, isNew: false, taskIfMissing: true);
         await db.SaveChangesAsync();
         db.ChangeTracker.Clear();
 
@@ -685,7 +686,8 @@ public class OrdersService(AppDbContext db, CurrentUserAccessor tenant)
 
     // A new order adds an income record and a task; later edits keep both in step, and a completed
     // order is locked, so its income is frozen. Demo orders never reach the books.
-    private async Task SyncBooksAsync(Order order, IEnumerable<OrderLineItem> lines, bool isNew, bool withTask = true)
+    private async Task SyncBooksAsync(
+        Order order, IEnumerable<OrderLineItem> lines, bool isNew, bool withTask = true, bool taskIfMissing = false)
     {
         var businessId = tenant.GetBusinessId();
         var isDemo = IsTestCustomer(order.Customer, await GetTestPrefixAsync());
@@ -710,6 +712,10 @@ public class OrdersService(AppDbContext db, CurrentUserAccessor tenant)
         }
 
         OrderIncomeFactory.Apply(income, order, lines);
+
+        // Approval of a store order: the income may already be there, but the order still needs its one task.
+        if (task is null && taskIfMissing && withTask) db.Tasks.Add(NewOrderTask(order, lines));
+
         if (task is not null)
         {
             task.Title = TaskTitle(order);

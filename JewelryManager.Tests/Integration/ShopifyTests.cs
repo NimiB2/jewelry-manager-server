@@ -1,6 +1,9 @@
 using JewelryManager.Api.Auth;
 using JewelryManager.Api.Common.Exceptions;
 using JewelryManager.Api.Data.Entities;
+using JewelryManager.Api.Features.Expenses;
+using JewelryManager.Api.Features.Finances;
+using JewelryManager.Api.Features.Invoices;
 using JewelryManager.Api.Features.Orders;
 using JewelryManager.Api.Features.Orders.Dtos;
 using JewelryManager.Api.Features.Shopify;
@@ -590,5 +593,83 @@ public class ShopifyTests(PostgresFixture pg)
         Assert.Equal("Mystery Earrings " + u, order.Items.Single().Name);
         Assert.Equal(80m, order.FinalAmount);
         Assert.Equal(1, await check.Incomes.CountAsync(i => i.OrderId == order.Id));
+    }
+
+    // ── A waiting store order is not a sale ──────────────────────────────────
+
+    private static readonly LocalInvoiceStorage Storage = new(Path.Combine(Path.GetTempPath(), "jewelry-manager-tests-invoices"));
+
+    private async Task OpenFinancesAsync()
+    {
+        await using var db = pg.NewDb();
+        var tenant = PostgresFixture.TenantFor(Business);
+        await new FinancesService(db, tenant, new ExpensesService(db, tenant, Storage)).GetFinancesAsync(null, null, null, null);
+    }
+
+    [Fact]
+    public async Task OpeningFinances_GivesAWaitingStoreOrderNoIncome_RemovesOneItWasGivenByMistake_AndApprovalStillWorks()
+    {
+        await EnsureSetupAsync();
+        var u = Unique();
+        var storeId = "F" + u;
+        await AddProductAsync("מוצר " + u, 100, "Ring " + u, storeId);
+
+        var order = await ImportKnownAsync("A1" + u, storeId);
+
+        // The home and finances screens load the books; that must not turn a waiting order into income.
+        await OpenFinancesAsync();
+        await using (var db = pg.NewDb())
+            Assert.Equal(0, await db.Incomes.CountAsync(i => i.OrderId == order.Id));
+
+        // An income that an older version gave it by mistake is taken back, and is not counted.
+        await using (var db = pg.NewDb())
+        {
+            db.Incomes.Add(new Income
+            {
+                Id = Guid.NewGuid(), BusinessId = Business, OrderId = order.Id, Date = order.Date,
+                Description = "stray", Amount = 100, Category = IncomeCategory.Sales, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
+            });
+            await db.SaveChangesAsync();
+        }
+
+        await OpenFinancesAsync();
+        await using (var db = pg.NewDb())
+            Assert.Equal(0, await db.Incomes.CountAsync(i => i.OrderId == order.Id));
+
+        // Approval makes exactly one income and one task.
+        Assert.False((await WithOrders(s => s.ApproveAsync(order.Id))).IsPendingApproval);
+        await using (var db = pg.NewDb())
+        {
+            Assert.Equal(1, await db.Incomes.CountAsync(i => i.OrderId == order.Id));
+            Assert.Equal(1, await db.Tasks.CountAsync(t => t.OrderId == order.Id && t.IsAutomatic));
+        }
+    }
+
+    [Fact]
+    public async Task Approval_ReusesAnIncomeThatAlreadyExists_InsteadOfFailingOnTheUniqueKey()
+    {
+        await EnsureSetupAsync();
+        var u = Unique();
+        var storeId = "G" + u;
+        await AddProductAsync("מוצר " + u, 100, "Ring " + u, storeId);
+        var order = await ImportKnownAsync("A2" + u, storeId);
+
+        // The state the live database was in: the order is waiting, yet an income row already exists.
+        await using (var db = pg.NewDb())
+        {
+            db.Incomes.Add(new Income
+            {
+                Id = Guid.NewGuid(), BusinessId = Business, OrderId = order.Id, Date = order.Date,
+                Description = "stray", Amount = 1, Category = IncomeCategory.Sales, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
+            });
+            await db.SaveChangesAsync();
+        }
+
+        await WithOrders(s => s.ApproveAsync(order.Id));
+
+        await using var check = pg.NewDb();
+        var income = await check.Incomes.SingleAsync(i => i.OrderId == order.Id);
+        Assert.Equal(100m, income.Amount); // brought in line with the order
+        Assert.Equal(1, await check.Tasks.CountAsync(t => t.OrderId == order.Id && t.IsAutomatic));
     }
 }
