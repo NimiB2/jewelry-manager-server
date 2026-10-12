@@ -84,6 +84,7 @@ builder.Services.AddScoped<SettingsService>();
 builder.Services.AddScoped<PricingService>();
 builder.Services.AddScoped<ProductsService>();
 builder.Services.AddScoped<OrdersService>();
+builder.Services.AddScoped<JewelryManager.Api.Features.Search.SearchService>();
 builder.Services.AddScoped<ExpensesService>();
 builder.Services.AddScoped<IncomesService>();
 builder.Services.AddScoped<FinancesService>();
