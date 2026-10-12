@@ -13,13 +13,14 @@ using Microsoft.Extensions.Configuration;
 // ConnectionStrings__Default environment variable. Nothing secret is printed.
 
 if (args.Length < 1 || (args[0] != "status" && args.Length < 2)
-    || args[0] is not ("status" or "import-products" or "import-orders" or "export-products" or "update-products" or "reprice-products" or "read-invoices" or "export-settings" or "import-settings"))
+    || args[0] is not ("status" or "import-products" or "import-orders" or "export-products" or "update-products" or "prepare-review" or "reprice-products" or "read-invoices" or "export-settings" or "import-settings"))
 {
     Console.WriteLine("Usage: status   (what is in the database this tool points at)");
     Console.WriteLine("       import-products <file.json> [--dry-run]");
     Console.WriteLine("       import-orders <orders_export.csv> [--dry-run]   (the store's old orders, as finished sales)");
     Console.WriteLine("       export-products <products.xlsx>   (every product in an Excel file to fill in)");
     Console.WriteLine("       update-products <products.xlsx> [--dry-run]   (applies the edited Excel file back)");
+    Console.WriteLine("       prepare-review <in.xlsx> <out.xlsx>   (fills what can be worked out from the names and marks the rest, for a careful look; needs no database)");
     Console.WriteLine("       reprice-products <file.json> [--dry-run]   (rows without a sheet price get the recommended price)");
     Console.WriteLine("       export-settings <file.json>   (saves the settings of this database)");
     Console.WriteLine("       import-settings <file.json> [--dry-run]   (replaces the settings of this database)");
@@ -33,6 +34,24 @@ var config = new ConfigurationBuilder()
     .AddJsonFile(Path.Combine("JewelryManager.Api", "appsettings.Development.json"), optional: true)
     .AddEnvironmentVariables()
     .Build();
+
+// Needs no database: it only rewrites an Excel file.
+if (args[0] == "prepare-review")
+{
+    if (args.Length < 3)
+    {
+        Console.WriteLine("Usage: prepare-review <in.xlsx> <out.xlsx>");
+        return 1;
+    }
+
+    var review = ReviewSheet.Prepare(args[1], args[2]);
+    Console.WriteLine($"Saved {args[2]}");
+    Console.WriteLine($"Products: {review.Products}   Complete: {review.Complete}");
+    Console.WriteLine($"Material filled: {review.MaterialsSuggested} clear (gold), {review.MaterialsGuessed} guessed (silver, to check)   Type filled: {review.TypesSuggested}");
+    Console.WriteLine($"Still without: type {review.StillNoType}, material {review.StillNoMaterial}, weight {review.NoWeight}, price {review.NoPrice}");
+    foreach (var name in review.Unresolved) Console.WriteLine("UNRESOLVED  " + name);
+    return 0;
+}
 
 // Needs no database: it only sends invoice files to the configured AI provider.
 if (args[0] == "read-invoices")

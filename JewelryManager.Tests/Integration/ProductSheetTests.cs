@@ -226,4 +226,64 @@ public class ProductSheetTests(PostgresFixture pg)
             File.Delete(path);
         }
     }
+
+    [Fact]
+    public async Task PrepareReview_FillsWhatTheNameShows_MarksGuesses_AndTheFileStillAppliesCleanly()
+    {
+        var business = await NewBusinessAsync();
+        var general = await GeneralAsync(business);
+
+        await using (var db = pg.NewDb())
+        {
+            var now = DateTime.UtcNow;
+            Product Store(string name, string type) => new()
+            {
+                Id = Guid.NewGuid(), BusinessId = business, Name = name, Type = type, SitePrice = 500, ShopifyName = name,
+                CreatedAt = now, UpdatedAt = now,
+                Collections = [new ProductCollection { BusinessId = business, CollectionId = general }],
+            };
+
+            db.Products.AddRange(
+                Store("LIA Gold Necklace", "שרשרת"),     // gold: clear
+                Store("LIA Silver Necklace", "שרשרת"),   // silver: a guess
+                Store("Mystery Piece", "טבעת"),            // nothing to go on
+                Store("NAYA Gold Earrings", ""));          // type from the name
+            await db.SaveChangesAsync();
+        }
+
+        var original = TempFile();
+        var reviewed = TempFile();
+        try
+        {
+            await ExportAsync(business, original);
+            var summary = ReviewSheet.Prepare(original, reviewed);
+
+            Assert.Equal(4, summary.Products);
+            Assert.Equal(2, summary.MaterialsSuggested);   // both gold items
+            Assert.Equal(1, summary.MaterialsGuessed);     // the silver one
+            Assert.Equal(1, summary.TypesSuggested);       // earrings
+            Assert.Equal(["Mystery Piece"], summary.Unresolved);
+
+            using (var workbook = new XLWorkbook(reviewed))
+            {
+                var sheet = workbook.Worksheet("מוצרים");
+                Assert.Equal("זהב", sheet.Cell(RowOf(sheet, "LIA Gold Necklace"), 4).GetString());
+                Assert.Equal("כסף", sheet.Cell(RowOf(sheet, "LIA Silver Necklace"), 4).GetString());
+                Assert.Equal("עגילים", sheet.Cell(RowOf(sheet, "NAYA Gold Earrings"), 3).GetString());
+                Assert.Equal("", sheet.Cell(RowOf(sheet, "Mystery Piece"), 4).GetString());
+                Assert.True(workbook.Worksheets.Contains("סיכום"));
+            }
+
+            // The extra columns do not get in the way: the file applies, and only the filled cells are changes.
+            var dry = await ImportAsync(business, reviewed, dryRun: true);
+            Assert.Equal(3, dry.Updated);
+            Assert.Empty(dry.Problems);
+            Assert.Equal(1, dry.Unchanged);
+        }
+        finally
+        {
+            File.Delete(original);
+            File.Delete(reviewed);
+        }
+    }
 }

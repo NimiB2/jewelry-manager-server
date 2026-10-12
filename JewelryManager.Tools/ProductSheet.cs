@@ -26,32 +26,32 @@ public record SheetUpdateResult(
 /// </summary>
 public static class ProductSheet
 {
-    private const string ProductsSheet = "מוצרים";
-    private const string AdditionsSheet = "תוספות";
-    private const string ListsSheet = "רשימות";
+    internal const string ProductsSheet = "מוצרים";
+    internal const string AdditionsSheet = "תוספות";
+    internal const string ListsSheet = "רשימות";
     private const string GuideSheet = "הוראות";
 
     // Product columns (by header text, so the owner may move them around).
-    private const string HId = "מזהה (לא לשנות)";
-    private const string HName = "שם המוצר";
-    private const string HType = "סוג";
-    private const string HMaterial = "חומר";
-    private const string HWeight = "משקל (גרם)";
-    private const string HHours = "שעות עבודה נוספות";
-    private const string HPrice = "מחיר באתר";
-    private const string HCollections = "אוספים (מופרדים בפסיק)";
-    private const string HShopifyName = "שם בשופיפי";
-    private const string HRecommended = "מחיר מומלץ (חישוב, לא לערוך)";
-    private const string HNeeds = "חסרים פרטים (לא לערוך)";
-    private const string HVariants = "אפשרויות בחנות (לא לערוך)";
+    internal const string HId = "מזהה (לא לשנות)";
+    internal const string HName = "שם המוצר";
+    internal const string HType = "סוג";
+    internal const string HMaterial = "חומר";
+    internal const string HWeight = "משקל (גרם)";
+    internal const string HHours = "שעות עבודה נוספות";
+    internal const string HPrice = "מחיר באתר";
+    internal const string HCollections = "אוספים (מופרדים בפסיק)";
+    internal const string HShopifyName = "שם בשופיפי";
+    internal const string HRecommended = "מחיר מומלץ (חישוב, לא לערוך)";
+    internal const string HNeeds = "חסרים פרטים (לא לערוך)";
+    internal const string HVariants = "אפשרויות בחנות (לא לערוך)";
 
     // Addition columns.
-    private const string AProductId = "מזהה המוצר (לא לשנות)";
-    private const string AProductName = "שם המוצר (לא לערוך)";
-    private const string AType = "סוג תוספת";
-    private const string ACustom = "שם חופשי";
-    private const string APrice = "מחיר";
-    private const string AQuantity = "כמות";
+    internal const string AProductId = "מזהה המוצר (לא לשנות)";
+    internal const string AProductName = "שם המוצר (לא לערוך)";
+    internal const string AType = "סוג תוספת";
+    internal const string ACustom = "שם חופשי";
+    internal const string APrice = "מחיר";
+    internal const string AQuantity = "כמות";
 
     private static readonly string[] DefaultTypes = ["טבעת", "עגילים", "שרשרת", "צמיד", "תליון", "סט", "אחר"];
 
@@ -441,7 +441,7 @@ public static class ProductSheet
     }
 
     // Header text → column number.
-    private static Dictionary<string, int> Columns(IXLWorksheet sheet)
+    internal static Dictionary<string, int> Columns(IXLWorksheet sheet)
     {
         var result = new Dictionary<string, int>();
         var header = sheet.Row(1);
@@ -449,11 +449,11 @@ public static class ProductSheet
         return result;
     }
 
-    private static string Text(IXLRow row, Dictionary<string, int> columns, string header) =>
+    internal static string Text(IXLRow row, Dictionary<string, int> columns, string header) =>
         columns.TryGetValue(header, out var c) ? row.Cell(c).GetString().Trim() : "";
 
     // Numbers typed as text ("12,5" or "12.5 ₪") are accepted; empty or unreadable gives null.
-    private static decimal? Number(IXLRow row, Dictionary<string, int> columns, string header)
+    internal static decimal? Number(IXLRow row, Dictionary<string, int> columns, string header)
     {
         if (!columns.TryGetValue(header, out var c)) return null;
 
