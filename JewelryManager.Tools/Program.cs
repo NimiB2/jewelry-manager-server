@@ -7,15 +7,19 @@ using Microsoft.Extensions.Configuration;
 // Usage (from server-dotnet/):
 //   dotnet run --project JewelryManager.Tools -- import-products <file.json> [--dry-run]
 //   dotnet run --project JewelryManager.Tools -- import-orders <orders_export.csv> [--dry-run]
+//   dotnet run --project JewelryManager.Tools -- export-products <products.xlsx>
+//   dotnet run --project JewelryManager.Tools -- update-products <products.xlsx> [--dry-run]
 // The connection string comes from JewelryManager.Api/appsettings.Development.json or the
 // ConnectionStrings__Default environment variable. Nothing secret is printed.
 
 if (args.Length < 1 || (args[0] != "status" && args.Length < 2)
-    || args[0] is not ("status" or "import-products" or "import-orders" or "reprice-products" or "read-invoices" or "export-settings" or "import-settings"))
+    || args[0] is not ("status" or "import-products" or "import-orders" or "export-products" or "update-products" or "reprice-products" or "read-invoices" or "export-settings" or "import-settings"))
 {
     Console.WriteLine("Usage: status   (what is in the database this tool points at)");
     Console.WriteLine("       import-products <file.json> [--dry-run]");
     Console.WriteLine("       import-orders <orders_export.csv> [--dry-run]   (the store's old orders, as finished sales)");
+    Console.WriteLine("       export-products <products.xlsx>   (every product in an Excel file to fill in)");
+    Console.WriteLine("       update-products <products.xlsx> [--dry-run]   (applies the edited Excel file back)");
     Console.WriteLine("       reprice-products <file.json> [--dry-run]   (rows without a sheet price get the recommended price)");
     Console.WriteLine("       export-settings <file.json>   (saves the settings of this database)");
     Console.WriteLine("       import-settings <file.json> [--dry-run]   (replaces the settings of this database)");
@@ -78,6 +82,24 @@ if (args[0] == "import-orders")
     foreach (var skipped in history.Skipped) Console.WriteLine($"SKIPPED  {skipped.Name} — {skipped.Reason}");
     foreach (var line in history.Failed) Console.WriteLine($"FAILED  {line}");
     return history.Failed.Count == 0 ? 0 : 2;
+}
+
+if (args[0] == "export-products")
+{
+    var exported = await ProductSheet.ExportAsync(db, business[0].Id, args[1]);
+    Console.WriteLine($"Saved {exported.Products} products ({exported.Additions} additions) to {args[1]}");
+    Console.WriteLine($"Still missing a type or a material: {exported.NeedingDetails}");
+    return 0;
+}
+
+if (args[0] == "update-products")
+{
+    var sheet = await ProductSheet.ImportAsync(db, business[0].Id, args[1], dryRun);
+
+    Console.WriteLine($"{(dryRun ? "Would update" : "Updated")}: {sheet.Updated}   Unchanged: {sheet.Unchanged}   New products: {sheet.Created}   Problems: {sheet.Problems.Count}");
+    foreach (var change in sheet.Changes) Console.WriteLine("CHANGE   " + change);
+    foreach (var problem in sheet.Problems) Console.WriteLine("PROBLEM  " + problem);
+    return sheet.Problems.Count == 0 ? 0 : 2;
 }
 
 var importer = new ProductImporter(db, business[0].Id);

@@ -16,4 +16,8 @@
     <ProjectReference Include="..\JewelryManager.Api\JewelryManager.Api.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="ClosedXML" Version="0.105.1" />
+  </ItemGroup>
+
 </Project>

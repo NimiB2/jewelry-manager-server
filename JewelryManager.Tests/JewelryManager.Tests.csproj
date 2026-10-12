@@ -25,6 +25,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\JewelryManager.Api\JewelryManager.Api.csproj" />
+    <ProjectReference Include="..\JewelryManager.Tools\JewelryManager.Tools.csproj" />
   </ItemGroup>
 
 </Project>
