@@ -509,6 +509,89 @@ public class OrdersService(AppDbContext db, CurrentUserAccessor tenant)
         return new HistoricalImportOutcome(true, matched, unmatched);
     }
 
+    /// <summary>
+    /// Ties order lines that have no catalog product to one, by the store's name or the product's own name
+    /// (as the old-orders import does). Only the link and the product's details are set; the price, the
+    /// quantity and the amounts of the order never change. The work hours of the order's income follow the lines.
+    /// </summary>
+    public async Task<RelinkResult> RelinkLinesAsync(bool dryRun = false, IReadOnlyList<ProductAlias>? aliases = null)
+    {
+        var businessId = tenant.GetBusinessId();
+        var settings = await LoadSnapshotSettingsAsync();
+
+        var products = await db.Products.AsNoTracking().Where(p => p.BusinessId == businessId).ToListAsync();
+        var byStoreName = new Dictionary<string, Product>();
+        foreach (var p in products.Where(p => !string.IsNullOrWhiteSpace(p.ShopifyName)))
+            byStoreName.TryAdd(NormalizeTitle(p.ShopifyName!), p);
+        var byOwnName = products.GroupBy(p => NormalizeTitle(p.Name)).Where(g => g.Count() == 1).ToDictionary(g => g.Key, g => g.First());
+
+        // Names the store used before: the product they stand for is picked by its own name, type and material.
+        var aliasProducts = new Dictionary<string, Product>();
+        foreach (var alias in aliases ?? [])
+        {
+            var matches = products.Where(p => p.Name == alias.Name
+                && (alias.Type is null || p.Type == alias.Type) && (alias.Material is null || p.Material == alias.Material)).ToList();
+            if (matches.Count == 1) aliasProducts[NormalizeTitle(alias.StoreTitle)] = matches[0];
+        }
+
+        var lines = await db.OrderLineItems
+            .Include(l => l.Order)
+            .Where(l => l.BusinessId == businessId && l.ProductId == null && !l.Order.IsDeleted)
+            .ToListAsync();
+
+        var orderIds = new HashSet<Guid>();
+        var stillOpen = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        var linked = 0;
+
+        foreach (var line in lines)
+        {
+            var (_, variant, product) = MatchTitle(line.Name, byStoreName, byOwnName);
+            if (product is null)
+            {
+                // The name may be an old one: whole, or without its last " - option".
+                var cut = line.Name.LastIndexOf(" - ", StringComparison.Ordinal);
+                var baseName = cut > 0 ? line.Name[..cut].Trim() : line.Name.Trim();
+                if (aliasProducts.TryGetValue(NormalizeTitle(line.Name), out var byAlias)
+                    || aliasProducts.TryGetValue(NormalizeTitle(baseName), out byAlias))
+                {
+                    product = byAlias;
+                    variant = cut > 0 ? line.Name[(cut + 3)..].Trim() : null;
+                }
+            }
+
+            if (product is null)
+            {
+                stillOpen.Add(line.Name);
+                continue;
+            }
+
+            ApplyProductSnapshot(line, product, line.Name, settings);
+            if (string.IsNullOrWhiteSpace(line.Note)) line.Note = CleanNote(variant);
+            orderIds.Add(line.OrderId);
+            linked++;
+        }
+
+        if (orderIds.Count > 0)
+        {
+            var orders = await db.Orders.Include(o => o.Items)
+                .Where(o => o.BusinessId == businessId && orderIds.Contains(o.Id)).ToListAsync();
+            var incomes = await db.Incomes.Where(i => i.BusinessId == businessId && i.OrderId != null && orderIds.Contains(i.OrderId.Value)).ToListAsync();
+
+            foreach (var income in incomes)
+            {
+                var order = orders.First(o => o.Id == income.OrderId);
+                income.WorkHours = order.Items.Sum(i => i.WorkHours * i.Quantity);
+                income.UpdatedAt = DateTime.UtcNow;
+            }
+        }
+
+        if (dryRun) db.ChangeTracker.Clear();
+        else await db.SaveChangesAsync();
+
+        db.ChangeTracker.Clear();
+        return new RelinkResult(linked, orderIds.Count, stillOpen.ToList());
+    }
+
     // The whole name first, then with the last " - option" taken off (a store title may itself contain a dash).
     private static (string Title, string? Variant, Product? Product) MatchTitle(
         string storeName, Dictionary<string, Product> byStoreName, Dictionary<string, Product> byOwnName)
