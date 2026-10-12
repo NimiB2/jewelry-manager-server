@@ -63,7 +63,7 @@ public class DbSeeder(AppDbContext db, IConfiguration config)
         var now = DateTime.UtcNow;
 
         if (!await db.Businesses.AnyAsync(b => b.Id == BusinessId))
-            db.Businesses.Add(new Business { Id = BusinessId, Name = "Meital Bar", CreatedAt = now, UpdatedAt = now });
+            db.Businesses.Add(new Business { Id = BusinessId, Name = "Demo Jewelry", CreatedAt = now, UpdatedAt = now });
 
         // Settings and its lists are seeded together, only when the business has no settings yet,
         // so edits made in the app are never overwritten.
