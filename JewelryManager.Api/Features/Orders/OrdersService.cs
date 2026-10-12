@@ -15,6 +15,9 @@ public class OrdersService(AppDbContext db, CurrentUserAccessor tenant)
     private const int TestSeriesStart = 500;
     private const int RealSeriesStart = 1000;
 
+    // How long a customer's phone number is kept when her order summary was never marked as sent.
+    private const int PhoneKeptDays = 30;
+
     public async Task<OrdersListResponse> GetOrdersAsync(string? status, string? search, DateOnly? from, DateOnly? to)
     {
         var businessId = tenant.GetBusinessId();
@@ -242,6 +245,9 @@ public class OrdersService(AppDbContext db, CurrentUserAccessor tenant)
     {
         var order = await FindOrThrowAsync(id, asNoTracking: false);
         order.CustomerNotifiedAt = notified ? DateTime.UtcNow : null;
+
+        // The number was kept only to send this one message; once it is sent there is no reason to keep it.
+        if (notified) order.CustomerPhone = null;
         order.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync();
         db.ChangeTracker.Clear();
@@ -276,6 +282,12 @@ public class OrdersService(AppDbContext db, CurrentUserAccessor tenant)
         await using var tx = await db.Database.BeginTransactionAsync();
         var lockKey = $"orders:{businessId}";
         await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtext({lockKey}))");
+
+        // A phone number is kept only to send the order summary; whatever was never sent goes after a month.
+        var cutoff = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-PhoneKeptDays);
+        await db.Orders
+            .Where(o => o.BusinessId == businessId && o.CustomerPhone != null && o.Date < cutoff)
+            .ExecuteUpdateAsync(set => set.SetProperty(o => o.CustomerPhone, (string?)null));
 
         // The store retries a delivery it thinks failed; the same order must never be created twice.
         if (await db.Orders.AnyAsync(o => o.BusinessId == businessId && o.ExternalId == incoming.ExternalId))
@@ -662,6 +674,7 @@ public class OrdersService(AppDbContext db, CurrentUserAccessor tenant)
 
         // The store sends the customer her receipt by itself, so an order from it is approved as "receipt sent".
         if (order.Source == OrderSource.Shopify) order.ReceiptSent = true;
+        if (order.CustomerNotifiedAt is not null) order.CustomerPhone = null;
 
         // Not "new": an income or task that already exists for this order is reused, never added twice.
         await SyncBooksAsync(order, order.Items, isNew: false, taskIfMissing: true);
@@ -681,6 +694,7 @@ public class OrdersService(AppDbContext db, CurrentUserAccessor tenant)
     private static void ApplyProductSnapshot(OrderLineItem line, Product? product, string storeTitle, SnapshotSettings settings)
     {
         line.ProductId = product?.Id;
+        line.ListPrice = product is { SitePrice: > 0 } ? product.SitePrice : null;
         line.Name = product?.Name ?? (storeTitle.Length > 200 ? storeTitle[..200] : storeTitle);
         line.Type = product?.Type ?? "";
         line.Material = product?.Material ?? "";
@@ -693,6 +707,7 @@ public class OrdersService(AppDbContext db, CurrentUserAccessor tenant)
     {
         var order = await FindOrThrowAsync(id, asNoTracking: false);
         order.IsDeleted = true;
+        order.CustomerPhone = null;
         order.UpdatedAt = DateTime.UtcNow;
 
         // A deleted order disappears from the app, so its income and its automatic task go with it.

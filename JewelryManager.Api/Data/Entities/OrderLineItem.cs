@@ -16,6 +16,11 @@ public class OrderLineItem
     public string Material { get; set; } = string.Empty;
 
     public decimal UnitPrice { get; set; }
+
+    // The catalog's price for this product when the order was made, to tell a deposit from a full payment
+    // in the customer message. Null when the line is not tied to a catalog product.
+    public decimal? ListPrice { get; set; }
+
     public int Quantity { get; set; } = 1;
 
     // Work hours for one piece when the order was made, for the profit calculation later.

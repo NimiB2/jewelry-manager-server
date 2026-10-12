@@ -13,7 +13,11 @@ public class CustomerMessageTests
         Assert.Contains("• שם המזמין/ה: דנה כהן", text);
         Assert.Contains("• התכשיט: טבעת AHAVA (48)", text);
         Assert.Contains("• תאריך ההזמנה: 12.10.2026", text);
-        Assert.Contains("• מקדמה ששולמה: 2,200 ₪", text);
+        Assert.Contains("• מקדמה ששולמה: 2,200 ₪", text); // deposit wording unless it is known to be the whole price
+
+        var full = CustomerMessageTemplate.Build("דנה כהן", "טבעת", new DateOnly(2026, 10, 12), 2200m, paidInFull: true);
+        Assert.Contains("• סכום ששולם: 2,200 ₪", full);
+        Assert.DoesNotContain("מקדמה", full.Split('\n').First(l => l.Contains("₪")));
         Assert.StartsWith("היי🤍", text);
         Assert.Contains("תוך עד 21 ימי עסקים", text);
         Assert.Contains("תכשיט שיוצר בהזמנה אישית אינו ניתן להחזרה או להחלפה.", text);

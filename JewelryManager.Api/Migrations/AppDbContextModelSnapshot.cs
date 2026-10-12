@@ -483,6 +483,10 @@ namespace JewelryManager.Api.Migrations
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)");
 
+                    b.Property<decimal?>("ListPrice")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
                     b.Property<string>("Material")
                         .IsRequired()
                         .HasColumnType("text");

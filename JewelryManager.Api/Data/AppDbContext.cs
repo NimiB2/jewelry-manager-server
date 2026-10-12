@@ -130,6 +130,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasIndex(i => i.BusinessId);
             e.Property(i => i.UnitPrice).HasPrecision(18, 2);
             e.Property(i => i.WorkHours).HasPrecision(18, 4);
+            e.Property(i => i.ListPrice).HasPrecision(18, 2);
             e.Property(i => i.Note).HasMaxLength(500);
             e.Property(i => i.ExternalProductId).HasMaxLength(40);
             e.HasOne(i => i.Order).WithMany(o => o.Items).HasForeignKey(i => i.OrderId).OnDelete(DeleteBehavior.Cascade);

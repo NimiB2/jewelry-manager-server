@@ -10,14 +10,25 @@ namespace JewelryManager.Api.Features.Orders;
 /// </summary>
 public static class CustomerMessageTemplate
 {
+    // A deposit is a part of the price. Paying at least this share of the catalog price counts as paying it
+    // all (a sale or a coupon is not a deposit), so the message does not call it a deposit.
+    private const decimal FullPaymentShare = 0.8m;
+
     public static string Build(Order order)
     {
         var items = string.Join(", ", order.Items.OrderBy(i => i.SortOrder).Select(Describe));
-        return Build(order.Customer, items, order.Date, order.FinalAmount);
+        return Build(order.Customer, items, order.Date, order.FinalAmount, PaidInFull(order));
     }
 
-    public static string Build(string? customer, string items, DateOnly date, decimal paid)
+    // Only when every line is tied to a catalog price and was paid at (about) that price. When it is not
+    // certain, the wording stays "deposit", the careful one.
+    public static bool PaidInFull(Order order) =>
+        order.Items.Count > 0
+        && order.Items.All(i => i.ListPrice is > 0 && i.UnitPrice >= i.ListPrice * FullPaymentShare);
+
+    public static string Build(string? customer, string items, DateOnly date, decimal paid, bool paidInFull = false)
     {
+        var paidLabel = paidInFull ? "סכום ששולם" : "מקדמה ששולמה";
         var name = string.IsNullOrWhiteSpace(customer) ? "—" : customer.Trim();
         var when = date.ToString("dd.MM.yyyy", CultureInfo.InvariantCulture);
         var amount = paid.ToString("#,##0.##", CultureInfo.InvariantCulture);
@@ -30,7 +41,7 @@ public static class CustomerMessageTemplate
             • שם המזמין/ה: {name}
             • התכשיט: {items}
             • תאריך ההזמנה: {when}
-            • מקדמה ששולמה: {amount} ₪
+            • {paidLabel}: {amount} ₪
 
             התכשיט שלך מיוצר במיוחד עבורך ויהיה מוכן תוך עד 21 ימי עסקים ממועד ההזמנה. כמובן שאעדכן אותך ברגע שהוא מוכן ✨
 

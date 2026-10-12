@@ -689,7 +689,8 @@ public class ShopifyTests(PostgresFixture pg)
         Assert.Equal("972521234567", order.CustomerWhatsApp);
         Assert.Contains("שם המזמין/ה: דנה כהן", order.CustomerMessage);
         Assert.Contains("• התכשיט: מוצר " + u, order.CustomerMessage); // the catalog name, not the store's
-        Assert.Contains("• מקדמה ששולמה: 450 ₪", order.CustomerMessage);
+        // She paid the catalog price (450 against a catalog price of 100): the whole amount, not a deposit.
+        Assert.Contains("• סכום ששולם: 450 ₪", order.CustomerMessage);
         Assert.Null(order.CustomerNotifiedAt);
         Assert.False(order.ReceiptSent);
 
@@ -704,6 +705,55 @@ public class ShopifyTests(PostgresFixture pg)
         Assert.NotNull(approved.CustomerNotifiedAt);
 
         Assert.Null((await WithOrders(s => s.SetCustomerNotifiedAsync(order.Id, false))).CustomerNotifiedAt);
+    }
+
+    [Fact]
+    public async Task ADepositIsWordedAsOne_AndThePhoneIsKeptOnlyUntilTheSummaryIsSent()
+    {
+        await EnsureSetupAsync();
+        var u = Unique();
+        var storeId = "N" + u;
+        await AddProductAsync("מוצר " + u, 2200, "Ring " + u, storeId);
+
+        // 500 paid on a piece that costs 2,200: a deposit.
+        var incoming = StoreOrder("B2" + u, 0, Line("Ring " + u, storeId, 500)) with { Phone = "050-1112222" };
+        await WithOrders(s => s.ImportStoreOrderAsync(incoming));
+        var order = (await WithOrders(s => s.GetPendingOrdersAsync())).Single(o => o.ExternalName == "#B2" + u);
+
+        Assert.Contains("• מקדמה ששולמה: 500 ₪", order.CustomerMessage);
+        Assert.Equal("972501112222", order.CustomerWhatsApp);
+
+        // Once it is marked sent the number is gone from the system.
+        var sent = await WithOrders(s => s.SetCustomerNotifiedAsync(order.Id, true));
+        Assert.Null(sent.CustomerPhone);
+        Assert.Null(sent.CustomerWhatsApp);
+        await using (var db = pg.NewDb())
+            Assert.Null((await db.Orders.AsNoTracking().SingleAsync(o => o.Id == order.Id)).CustomerPhone);
+    }
+
+    [Fact]
+    public async Task APhoneGoesWithARejectedOrder_AndAnOldUnsentOneIsErasedWhenTheNextOrderArrives()
+    {
+        await EnsureSetupAsync();
+        var u = Unique();
+        var storeId = "P" + u;
+        await AddProductAsync("מוצר " + u, 100, "Ring " + u, storeId);
+
+        // Rejecting an order removes its number too.
+        await WithOrders(s => s.ImportStoreOrderAsync(
+            StoreOrder("B3" + u, 0, Line("Ring " + u, storeId, 100)) with { Phone = "050-0000003" }));
+        var rejected = (await WithOrders(s => s.GetPendingOrdersAsync())).Single(o => o.ExternalName == "#B3" + u);
+        await RunOrders(s => s.DeleteOrderAsync(rejected.Id));
+        await using (var db = pg.NewDb())
+            Assert.Null((await db.Orders.AsNoTracking().SingleAsync(o => o.Id == rejected.Id)).CustomerPhone);
+
+        // An order from long ago that was never marked sent keeps no number once a new order arrives.
+        await WithOrders(s => s.ImportStoreOrderAsync(
+            StoreOrder("B4" + u, 0, Line("Ring " + u, storeId, 100)) with { Phone = "050-0000004", Date = new DateOnly(2020, 1, 1) }));
+        await WithOrders(s => s.ImportStoreOrderAsync(StoreOrder("B5" + u, 0, Line("Ring " + u, storeId, 100))));
+
+        await using var check = pg.NewDb();
+        Assert.Null((await check.Orders.AsNoTracking().SingleAsync(o => o.ExternalId == "B4" + u)).CustomerPhone);
     }
 
     [Fact]
