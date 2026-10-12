@@ -209,6 +209,23 @@ public static class ReviewSheet
         return new ReviewSummary(products, complete, matSure, matGuess, typeSure, noMaterial, noType, noWeight, noPrice, unresolved);
     }
 
+    /// <summary>The product type a name shows (ring, earrings, necklace, bracelet), or null.</summary>
+    internal static string? GuessType(string name)
+    {
+        var text = name.ToLowerInvariant();
+        var found = TypeWords.FirstOrDefault(t => t.Words.Any(w => text.Contains(w)));
+        return found.Type;
+    }
+
+    /// <summary>"gold" or "silver" when the name says exactly one of them, else null.</summary>
+    internal static string? GuessMaterialKind(string name)
+    {
+        var text = name.ToLowerInvariant();
+        var gold = text.Contains("gold") || text.Contains("זהב");
+        var silver = text.Contains("silver") || text.Contains("כסף");
+        return gold && !silver ? "gold" : silver && !gold ? "silver" : null;
+    }
+
     // The gold material of this business: the one called gold, preferring 14K when there are several.
     private static string? PickGold(List<string> materials)
     {

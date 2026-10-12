@@ -21,3 +21,9 @@ public record HistoricalOrder(
 
 /// <summary>What importing one old order did (or would do, in a dry run).</summary>
 public record HistoricalImportOutcome(bool Created, int MatchedLines, List<string> UnmatchedTitles);
+
+/// <summary>What tying old order lines to catalog products did (or would do).</summary>
+public record RelinkResult(int LinesLinked, int Orders, List<string> StillWithoutProduct);
+
+/// <summary>An item name the store used in old orders, and the catalog product it stands for.</summary>
+public record ProductAlias(string StoreTitle, string Name, string? Type, string? Material);

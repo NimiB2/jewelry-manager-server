@@ -1,8 +1,9 @@
 using System.Globalization;
+using System.Text.RegularExpressions;
 using ClosedXML.Excel;
-using JewelryManager.Api.Auth;
 using JewelryManager.Api.Data;
 using JewelryManager.Api.Features.Collections;
+using JewelryManager.Api.Features.Orders.Dtos;
 using JewelryManager.Api.Features.Pricing;
 using JewelryManager.Api.Features.Products;
 using JewelryManager.Api.Features.Products.Dtos;
@@ -17,21 +18,40 @@ public record SheetUpdateResult(
     int Unchanged,
     int Created,
     List<string> Changes,
-    List<string> Problems);
+    List<string> Problems,
+    List<string> NotInFile,
+    int Deleted);
+
+/// <summary>One product as a line of the workbook. Marks say a cell was filled in for her to check.</summary>
+public record SheetRow(
+    Guid? Id,
+    string Name,
+    string Type,
+    string Material,
+    decimal? Weight,
+    decimal? Hours,
+    decimal? Price,
+    string Additions,
+    string Collections,
+    string ShopifyName,
+    decimal? Recommended,
+    string Notes,
+    string TypeMark = "",
+    string MaterialMark = "",
+    string NameMark = "");
 
 /// <summary>
-/// The whole catalog as one Excel workbook, and back: the owner fills in what is missing and the tool
-/// applies it through the same product service the app uses. Products are matched by the hidden-in-plain-sight
-/// id column, so renaming a product in the sheet renames it instead of making a second one.
+/// The whole catalog as one sheet of one Excel workbook, and back. The owner fills in what is missing and
+/// the tool applies it through the same product service the app uses. A product is matched by the id in
+/// the last column, so renaming a row renames the product instead of making a second one.
 /// </summary>
 public static class ProductSheet
 {
     internal const string ProductsSheet = "מוצרים";
-    internal const string AdditionsSheet = "תוספות";
-    internal const string ListsSheet = "רשימות";
-    private const string GuideSheet = "הוראות";
+    internal const string AdditionsSheet = "תוספות";   // the old two-sheet layout only
+    internal const string ListsSheet = "רשימות";       // the old two-sheet layout only
 
-    // Product columns (by header text, so the owner may move them around).
+    // Columns, by header text, so the owner may move them around.
     internal const string HId = "מזהה (לא לשנות)";
     internal const string HName = "שם המוצר";
     internal const string HType = "סוג";
@@ -39,21 +59,88 @@ public static class ProductSheet
     internal const string HWeight = "משקל (גרם)";
     internal const string HHours = "שעות עבודה נוספות";
     internal const string HPrice = "מחיר באתר";
-    internal const string HCollections = "אוספים (מופרדים בפסיק)";
+    internal const string HAdditions = "תוספות";
+    internal const string HCollections = "אוספים";
     internal const string HShopifyName = "שם בשופיפי";
     internal const string HRecommended = "מחיר מומלץ (חישוב, לא לערוך)";
-    internal const string HNeeds = "חסרים פרטים (לא לערוך)";
-    internal const string HVariants = "אפשרויות בחנות (לא לערוך)";
+    internal const string HMissing = "מה חסר (לא לערוך)";
+    internal const string HNotes = "הערות שלי";
 
-    // Addition columns.
+    // The old layout's addition columns.
     internal const string AProductId = "מזהה המוצר (לא לשנות)";
-    internal const string AProductName = "שם המוצר (לא לערוך)";
     internal const string AType = "סוג תוספת";
     internal const string ACustom = "שם חופשי";
     internal const string APrice = "מחיר";
     internal const string AQuantity = "כמות";
 
     private static readonly string[] DefaultTypes = ["טבעת", "עגילים", "שרשרת", "צמיד", "תליון", "סט", "אחר"];
+
+    private static readonly XLColor Yellow = XLColor.FromHtml("#FFF59D");
+    private static readonly XLColor Orange = XLColor.FromHtml("#FFE0B2");
+    private static readonly XLColor Green = XLColor.FromHtml("#C8E6C9");
+    private static readonly XLColor Grey = XLColor.WhiteSmoke;
+
+    // ── The additions as one cell ────────────────────────────────────────────
+
+    /// <summary>"אבן 150 x2; אחר:חריטה 15": type (and a free name after a colon), price, and a quantity when it is not 1.</summary>
+    public static string FormatAdditions(IEnumerable<ProductAdditionDto> additions) =>
+        string.Join("; ", additions.Select(a =>
+        {
+            var name = string.IsNullOrWhiteSpace(a.CustomName) ? a.TypeName : $"{a.TypeName}:{a.CustomName.Trim()}";
+            var price = a.Price.ToString("0.##", CultureInfo.InvariantCulture);
+            return a.Quantity > 1 ? $"{name} {price} x{a.Quantity}" : $"{name} {price}";
+        }));
+
+    private static readonly Regex AdditionPattern = new(
+        @"^(?<name>.+?)\s+(?<price>\d+(?:[.,]\d+)?)(?:\s*[xX×*]\s*(?<qty>\d+))?\s*₪?$", RegexOptions.Compiled);
+
+    /// <summary>Reads that text back. Anything it cannot read is reported, never guessed.</summary>
+    public static (List<ProductAdditionDto> Additions, List<string> Errors) ParseAdditions(
+        string? text, IReadOnlyDictionary<string, bool> typesAllowingCustomName)
+    {
+        var result = new List<ProductAdditionDto>();
+        var errors = new List<string>();
+        if (string.IsNullOrWhiteSpace(text)) return (result, errors);
+
+        foreach (var part in text.Split([';', '|', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var match = AdditionPattern.Match(part);
+            if (!match.Success)
+            {
+                errors.Add($"לא הצלחתי לקרוא את התוספת '{part}' (הצורה: סוג מחיר, למשל: אבן 150 x2)");
+                continue;
+            }
+
+            var name = match.Groups["name"].Value.Trim();
+            string? custom = null;
+            var colon = name.IndexOf(':');
+            if (colon > 0)
+            {
+                custom = name[(colon + 1)..].Trim();
+                name = name[..colon].Trim();
+            }
+
+            var type = typesAllowingCustomName.Keys.FirstOrDefault(t => string.Equals(t, name, StringComparison.OrdinalIgnoreCase));
+            if (type is null)
+            {
+                errors.Add($"סוג תוספת לא מוכר '{name}'");
+                continue;
+            }
+
+            var allowsCustom = typesAllowingCustomName[type];
+            if (allowsCustom && string.IsNullOrWhiteSpace(custom))
+            {
+                errors.Add($"לתוספת '{type}' צריך שם חופשי (למשל {type}:חריטה 15)");
+                continue;
+            }
+
+            var price = decimal.Parse(match.Groups["price"].Value.Replace(',', '.'), CultureInfo.InvariantCulture);
+            var quantity = match.Groups["qty"].Success ? int.Parse(match.Groups["qty"].Value) : 1;
+            result.Add(new ProductAdditionDto(type, allowsCustom ? custom : null, price, Math.Clamp(quantity, 1, 1_000)));
+        }
+
+        return (result, errors);
+    }
 
     // ── Export ───────────────────────────────────────────────────────────────
 
@@ -64,227 +151,308 @@ public static class ProductSheet
         var collections = await new CollectionsService(db, tenant).GetCollectionsAsync();
         var collectionName = collections.ToDictionary(c => c.Id, c => c.Name);
 
+        var rows = products.OrderBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase).Select(p => new SheetRow(
+            p.Id, p.Name, p.Type, p.Material, p.Weight, p.AdditionalWorkHours, p.SitePrice,
+            FormatAdditions(p.Additions),
+            string.Join(", ", p.CollectionIds.Select(id => collectionName.GetValueOrDefault(id, "")).Where(n => n.Length > 0)),
+            p.ShopifyName ?? "",
+            p.Price is null ? null : Math.Round(p.Price.RecommendedPrice),
+            "")).ToList();
+
         var materials = await db.Materials.AsNoTracking().Where(m => m.BusinessId == businessId)
             .OrderBy(m => m.SortOrder).Select(m => m.Name).ToListAsync();
-        var additionTypes = await db.ProductAdditionTypes.AsNoTracking().Where(t => t.BusinessId == businessId)
-            .OrderBy(t => t.SortOrder).Select(t => t.Name).ToListAsync();
-        var types = products.Select(p => p.Type).Where(t => !string.IsNullOrWhiteSpace(t))
-            .Concat(DefaultTypes).Distinct().OrderBy(t => t).ToList();
+        var types = products.Select(p => p.Type).Where(t => !string.IsNullOrWhiteSpace(t)).Concat(DefaultTypes).Distinct().OrderBy(t => t).ToList();
 
+        Write(rows, materials, types, path);
+        return new SheetExportResult(rows.Count, products.Sum(p => p.Additions.Count), products.Count(p => p.NeedsDetails));
+    }
+
+    // ── Writing the workbook ─────────────────────────────────────────────────
+
+    /// <summary>One sheet, nothing else: the lists behind the drop-downs live inside the cells' own validation.</summary>
+    public static void Write(IReadOnlyList<SheetRow> rows, IReadOnlyList<string> materials, IReadOnlyList<string> types, string path)
+    {
         using var workbook = new XLWorkbook();
-
         var sheet = workbook.AddWorksheet(ProductsSheet);
         sheet.RightToLeft = true;
 
-        var headers = new[] { HId, HName, HType, HMaterial, HWeight, HHours, HPrice, HCollections, HShopifyName, HRecommended, HNeeds, HVariants };
+        string[] headers = [HName, HType, HMaterial, HWeight, HHours, HPrice, HAdditions, HCollections, HShopifyName, HRecommended, HMissing, HNotes, HId];
         for (var c = 0; c < headers.Length; c++) sheet.Cell(1, c + 1).Value = headers[c];
 
-        var row = 2;
-        var needing = 0;
-        foreach (var p in products.OrderBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase))
+        var r = 2;
+        foreach (var row in rows)
         {
-            sheet.Cell(row, 1).Value = p.Id.ToString();
-            sheet.Cell(row, 2).Value = p.Name;
-            sheet.Cell(row, 3).Value = p.Type;
-            sheet.Cell(row, 4).Value = p.Material;
-            sheet.Cell(row, 5).Value = p.Weight;
-            sheet.Cell(row, 6).Value = p.AdditionalWorkHours;
-            sheet.Cell(row, 7).Value = p.SitePrice;
-            sheet.Cell(row, 8).Value = string.Join(", ", p.CollectionIds.Select(id => collectionName.GetValueOrDefault(id, "")).Where(n => n.Length > 0));
-            sheet.Cell(row, 9).Value = p.ShopifyName ?? "";
-            sheet.Cell(row, 10).Value = p.Price is null ? "" : Math.Round(p.Price.RecommendedPrice);
-            sheet.Cell(row, 11).Value = p.NeedsDetails ? "כן" : "";
-            sheet.Cell(row, 12).Value = string.Join(" | ", p.ShopifyVariants.Select(v => string.IsNullOrWhiteSpace(v.Title) ? $"{v.Price:0.##}" : $"{v.Title}: {v.Price:0.##}"));
+            var missing = new List<string>();
+            if (string.IsNullOrWhiteSpace(row.Type)) missing.Add("סוג");
+            if (string.IsNullOrWhiteSpace(row.Material)) missing.Add("חומר");
+            if (row.Weight is null or 0) missing.Add("משקל");
+            if (row.Price is null or 0) missing.Add("מחיר");
 
-            // What still has to be filled in stands out.
-            if (string.IsNullOrWhiteSpace(p.Type)) sheet.Cell(row, 3).Style.Fill.BackgroundColor = XLColor.LightYellow;
-            if (string.IsNullOrWhiteSpace(p.Material)) sheet.Cell(row, 4).Style.Fill.BackgroundColor = XLColor.LightYellow;
-            if (p.NeedsDetails) needing++;
-            row++;
+            sheet.Cell(r, 1).Value = row.Name;
+            sheet.Cell(r, 2).Value = row.Type;
+            sheet.Cell(r, 3).Value = row.Material;
+            if (row.Weight is { } w) sheet.Cell(r, 4).Value = w;
+            if (row.Hours is { } h) sheet.Cell(r, 5).Value = h;
+            if (row.Price is { } p) sheet.Cell(r, 6).Value = p;
+            sheet.Cell(r, 7).Value = row.Additions;
+            sheet.Cell(r, 8).Value = row.Collections;
+            sheet.Cell(r, 9).Value = row.ShopifyName;
+            if (row.Recommended is { } rec) sheet.Cell(r, 10).Value = rec;
+            sheet.Cell(r, 11).Value = missing.Count == 0 ? "מלא" : string.Join(", ", missing);
+            sheet.Cell(r, 12).Value = row.Notes;
+            sheet.Cell(r, 13).Value = row.Id?.ToString() ?? "";
+
+            Mark(sheet.Cell(r, 1), row.NameMark, false);
+            Mark(sheet.Cell(r, 2), row.TypeMark, string.IsNullOrWhiteSpace(row.Type));
+            Mark(sheet.Cell(r, 3), row.MaterialMark, string.IsNullOrWhiteSpace(row.Material));
+            if (row.Weight is null or 0) sheet.Cell(r, 4).Style.Fill.BackgroundColor = Yellow;
+            if (row.Price is null or 0) sheet.Cell(r, 6).Style.Fill.BackgroundColor = Yellow;
+            r++;
         }
 
-        var lastProductRow = Math.Max(row - 1, 2);
-        StyleHeader(sheet, headers.Length);
-        foreach (var c in new[] { 1, 10, 11, 12 })
-            sheet.Range(2, c, lastProductRow, c).Style.Fill.BackgroundColor = XLColor.WhiteSmoke;
-        sheet.Range(2, 5, lastProductRow, 5).Style.NumberFormat.Format = "0.##";
-        sheet.Range(2, 6, lastProductRow, 6).Style.NumberFormat.Format = "0.##";
-        sheet.Range(2, 7, lastProductRow, 7).Style.NumberFormat.Format = "#,##0.##";
-        sheet.Range(2, 10, lastProductRow, 10).Style.NumberFormat.Format = "#,##0";
-        sheet.Range(1, 1, lastProductRow, headers.Length).SetAutoFilter();
-        sheet.SheetView.FreezeRows(1);
-        sheet.SheetView.FreezeColumns(2);
-        foreach (var (column, width) in new[] { (1, 14), (2, 34), (3, 14), (4, 16), (5, 12), (6, 14), (7, 12), (8, 26), (9, 34), (10, 14), (11, 12), (12, 40) })
-            sheet.Column(column).Width = width;
-
-        // The additions: one row per priced extra of a product.
-        var additions = workbook.AddWorksheet(AdditionsSheet);
-        additions.RightToLeft = true;
-        var additionHeaders = new[] { AProductId, AProductName, AType, ACustom, APrice, AQuantity };
-        for (var c = 0; c < additionHeaders.Length; c++) additions.Cell(1, c + 1).Value = additionHeaders[c];
-
-        var additionRow = 2;
-        foreach (var p in products.OrderBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase))
-        {
-            foreach (var a in p.Additions)
-            {
-                additions.Cell(additionRow, 1).Value = p.Id.ToString();
-                additions.Cell(additionRow, 2).Value = p.Name;
-                additions.Cell(additionRow, 3).Value = a.TypeName;
-                additions.Cell(additionRow, 4).Value = a.CustomName ?? "";
-                additions.Cell(additionRow, 5).Value = a.Price;
-                additions.Cell(additionRow, 6).Value = a.Quantity;
-                additionRow++;
-            }
-        }
-
-        StyleHeader(additions, additionHeaders.Length);
-        additions.Range(2, 1, Math.Max(additionRow - 1, 2) + 200, 2).Style.Fill.BackgroundColor = XLColor.WhiteSmoke;
-        additions.SheetView.FreezeRows(1);
-        foreach (var (column, width) in new[] { (1, 14), (2, 34), (3, 18), (4, 22), (5, 12), (6, 8) })
-            additions.Column(column).Width = width;
-
-        // Lists behind the drop-downs.
-        var lists = workbook.AddWorksheet(ListsSheet);
-        WriteList(lists, 1, "חומרים", materials);
-        WriteList(lists, 2, "סוגי תוספת", additionTypes);
-        WriteList(lists, 3, "אוספים", collections.Select(c => c.Name).ToList());
-        WriteList(lists, 4, "סוגי מוצר", types);
-
-        if (materials.Count > 0)
-        {
-            var rule = sheet.Range(2, 4, lastProductRow + 500, 4).CreateDataValidation();
-            rule.List(lists.Range(2, 1, materials.Count + 1, 1), true);
-            rule.ErrorTitle = "חומר לא מוכר";
-            rule.ErrorMessage = "יש לבחור חומר מהרשימה (חומרים מנוהלים בהגדרות).";
-        }
-
-        var typeRule = sheet.Range(2, 3, lastProductRow + 500, 3).CreateDataValidation();
-        typeRule.List(lists.Range(2, 4, types.Count + 1, 4), true);
-        typeRule.ErrorStyle = XLErrorStyle.Warning; // a new type is allowed, the list is only a help
-
-        if (additionTypes.Count > 0)
-        {
-            var rule = additions.Range(2, 3, additionRow + 200, 3).CreateDataValidation();
-            rule.List(lists.Range(2, 2, additionTypes.Count + 1, 2), true);
-            rule.ErrorTitle = "סוג תוספת לא מוכר";
-            rule.ErrorMessage = "יש לבחור סוג תוספת מהרשימה (מנוהלים בהגדרות האישיות).";
-        }
-
-        lists.Visibility = XLWorksheetVisibility.Hidden;
-
-        var guide = workbook.AddWorksheet(GuideSheet);
-        guide.RightToLeft = true;
-        var lines = new[]
-        {
-            "איך עובדים עם הקובץ",
-            "",
-            "1. בגיליון 'מוצרים' שורה אחת לכל מוצר. תא צהוב = חסר פרט. ממלאים סוג וחומר (בחירה מהרשימה), משקל, שעות עבודה נוספות ומחיר.",
-            "2. העמודות האפורות (מזהה, מחיר מומלץ, חסרים פרטים, אפשרויות בחנות) הן לקריאה בלבד. אסור לשנות את עמודת המזהה: לפיה המוצר מזוהה.",
-            "3. בגיליון 'תוספות' שורה לכל תוספת (אבן, ציפוי...): מזהה המוצר, סוג תוספת, מחיר וכמות. כל התוספות של מוצר מוחלפות במה שכתוב כאן.",
-            "4. אוספים: שמות אוספים קיימים, מופרדים בפסיק. מוצר בלי אוסף עובר ל'כללי'.",
-            "5. שורה חדשה בלי מזהה = מוצר חדש. מחיקת שורה לא מוחקת את המוצר מהמערכת.",
-            "6. שומרים את הקובץ (xlsx), ומריצים את הטעינה קודם עם --dry-run כדי לראות מה ישתנה, ואז בלי.",
-        };
-        for (var i = 0; i < lines.Length; i++) guide.Cell(i + 1, 1).Value = lines[i];
-        guide.Cell(1, 1).Style.Font.Bold = true;
-        guide.Column(1).Width = 120;
-        guide.SetTabActive();
-
-        workbook.SaveAs(path);
-        return new SheetExportResult(products.Count, additionRow - 2, needing);
-    }
-
-    private static void StyleHeader(IXLWorksheet sheet, int columns)
-    {
-        var header = sheet.Range(1, 1, 1, columns);
+        var last = Math.Max(r - 1, 2);
+        var header = sheet.Range(1, 1, 1, headers.Length);
         header.Style.Font.Bold = true;
         header.Style.Fill.BackgroundColor = XLColor.LightSteelBlue;
         header.Style.Alignment.WrapText = true;
         header.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+
+        foreach (var column in new[] { 10, 11, 13 }) sheet.Range(2, column, last, column).Style.Fill.BackgroundColor = Grey;
+        sheet.Range(2, 4, last, 5).Style.NumberFormat.Format = "0.##";
+        sheet.Range(2, 6, last, 6).Style.NumberFormat.Format = "#,##0.##";
+        sheet.Range(2, 10, last, 10).Style.NumberFormat.Format = "#,##0";
+        sheet.Range(1, 1, last, headers.Length).SetAutoFilter();
+        sheet.SheetView.FreezeRows(1);
+        sheet.SheetView.FreezeColumns(1);
+
+        var widths = new[] { 34, 12, 16, 11, 12, 11, 36, 26, 34, 14, 16, 30, 14 };
+        for (var c = 0; c < widths.Length; c++) sheet.Column(c + 1).Width = widths[c];
+
+        // Short help, kept on the headers themselves so there is no second sheet.
+        Note(sheet.Cell(1, 7), "תוספות (אבן, ציפוי...) בתא אחד, מופרדות בנקודה-פסיק: סוג, מחיר, וכמות אם היא לא 1. למשל: אבן 150 x2; אחר:חריטה 15");
+        Note(sheet.Cell(1, 8), "שמות אוספים קיימים, מופרדים בפסיק. בלי אוסף: כללי.");
+        Note(sheet.Cell(1, 12), "מקום להערות שלך. הטעינה למערכת מתעלמת מהעמודה הזו.");
+        Note(sheet.Cell(1, 13), "לפי העמודה הזו המוצר מזוהה. לא לשנות. שורה חדשה בלי מזהה = מוצר חדש.");
+
+        if (materials.Count > 0) AddList(sheet.Range(2, 3, last + 500, 3), materials, strict: true, "חומר לא מוכר: יש לבחור מהרשימה");
+        if (types.Count > 0) AddList(sheet.Range(2, 2, last + 500, 2), types, strict: false, "");
+
+        workbook.SaveAs(path);
     }
 
-    private static void WriteList(IXLWorksheet sheet, int column, string title, List<string> items)
+    private static void Mark(IXLCell cell, string mark, bool empty)
     {
-        sheet.Cell(1, column).Value = title;
-        for (var i = 0; i < items.Count; i++) sheet.Cell(i + 2, column).Value = items[i];
+        if (mark == "guess") cell.Style.Fill.BackgroundColor = Orange;
+        else if (mark is "sure" or "new") cell.Style.Fill.BackgroundColor = Green;
+        else if (empty) cell.Style.Fill.BackgroundColor = Yellow;
     }
+
+    private static void Note(IXLCell cell, string text) => cell.CreateComment().AddText(text);
+
+    private static void AddList(IXLRange range, IReadOnlyList<string> items, bool strict, string message)
+    {
+        var list = string.Join(",", items.Where(i => !i.Contains(',')));
+        if (list.Length == 0 || list.Length > 250) return; // Excel limits an inline list to 255 characters
+
+        var rule = range.CreateDataValidation();
+        rule.List(list, true);
+        if (strict)
+        {
+            rule.ErrorTitle = "ערך לא מוכר";
+            rule.ErrorMessage = message;
+        }
+        else
+        {
+            rule.ErrorStyle = XLErrorStyle.Warning; // a new value is allowed, the list is only a help
+        }
+    }
+
+    // ── Converting the old two-sheet file ────────────────────────────────────
+
+    /// <summary>
+    /// Turns a workbook in the earlier layout (products + additions + lists, as the owner may already have
+    /// edited it) into the single-sheet one. Optionally adds a row for every item the old orders sold that
+    /// the catalog has no product for, and ties catalog products to store names from a hints file.
+    /// </summary>
+    public static (int Rows, int FromOrders, int Hinted) Convert(
+        string inPath, string outPath, IReadOnlyList<(string Title, decimal Price)>? soldItems, IReadOnlyList<ProductAlias>? hints)
+    {
+        using var workbook = new XLWorkbook(inPath);
+        if (!workbook.TryGetWorksheet(ProductsSheet, out var sheet))
+            throw new InvalidOperationException($"הגיליון '{ProductsSheet}' לא נמצא בקובץ");
+
+        var columns = Columns(sheet);
+        foreach (var needed in new[] { HName, HId })
+        {
+            if (!columns.ContainsKey(needed)) throw new InvalidOperationException($"העמודה '{needed}' חסרה");
+        }
+
+        // The additions of the old layout, one text per product.
+        var additionsByProduct = new Dictionary<string, List<ProductAdditionDto>>();
+        if (workbook.TryGetWorksheet(AdditionsSheet, out var additionsSheet))
+        {
+            var aCols = Columns(additionsSheet);
+            foreach (var row in additionsSheet.RowsUsed().Skip(1))
+            {
+                var id = Text(row, aCols, AProductId);
+                var type = Text(row, aCols, AType);
+                if (id.Length == 0 || type.Length == 0) continue;
+
+                var custom = Text(row, aCols, ACustom);
+                var price = Number(row, aCols, APrice) ?? 0m;
+                var quantity = (int)(Number(row, aCols, AQuantity) ?? 1m);
+                if (!additionsByProduct.TryGetValue(id, out var list)) additionsByProduct[id] = list = [];
+                list.Add(new ProductAdditionDto(type, custom.Length == 0 ? null : custom, price, Math.Max(quantity, 1)));
+            }
+        }
+
+        string MarkOf(IXLCell cell) =>
+            cell.Style.Fill.BackgroundColor == Orange ? "guess" : cell.Style.Fill.BackgroundColor == Green ? "sure" : "";
+
+        var rows = new List<SheetRow>();
+        foreach (var row in sheet.RowsUsed().Skip(1))
+        {
+            var name = Text(row, columns, HName);
+            if (name.Length == 0) continue;
+
+            var id = Text(row, columns, HId);
+            rows.Add(new SheetRow(
+                Guid.TryParse(id, out var guid) ? guid : null,
+                name,
+                Text(row, columns, HType),
+                Text(row, columns, HMaterial),
+                Number(row, columns, HWeight),
+                Number(row, columns, HHours),
+                Number(row, columns, HPrice),
+                additionsByProduct.TryGetValue(id, out var adds) ? FormatAdditions(adds) : Text(row, columns, HAdditions),
+                Text(row, columns, HCollections),
+                Text(row, columns, HShopifyName),
+                Number(row, columns, HRecommended),
+                Text(row, columns, HNotes),
+                columns.TryGetValue(HType, out var tc) ? MarkOf(row.Cell(tc)) : "",
+                columns.TryGetValue(HMaterial, out var mc) ? MarkOf(row.Cell(mc)) : ""));
+        }
+
+        // Catalog products that stand for an item the store knows by another name. A product without a store
+        // name gets it. One that already has another name keeps it, and the old name is only an alias: the old
+        // orders are tied to it (relink-orders), and no second product is made.
+        var hinted = 0;
+        var aliasTitles = new HashSet<string>();
+        foreach (var hint in hints ?? [])
+        {
+            var index = rows.FindIndex(r => r.Name == hint.Name
+                && (hint.Type is null || r.Type == hint.Type) && (hint.Material is null || r.Material == hint.Material));
+            if (index < 0) continue;
+
+            if (rows[index].ShopifyName.Length == 0)
+            {
+                rows[index] = rows[index] with
+                {
+                    ShopifyName = hint.StoreTitle,
+                    Notes = Join(rows[index].Notes, "שם בשופיפי הוצע לפי ההזמנות הישנות. לבדוק"),
+                };
+            }
+            else if (!string.Equals(rows[index].ShopifyName, hint.StoreTitle, StringComparison.OrdinalIgnoreCase))
+            {
+                rows[index] = rows[index] with
+                {
+                    Notes = Join(rows[index].Notes, $"בהזמנות ישנות נקרא: {hint.StoreTitle}"),
+                };
+            }
+
+            aliasTitles.Add(Normalize(hint.StoreTitle));
+            hinted++;
+        }
+
+        // Items the old orders sold that still have no product: one new row each, for her to confirm.
+        var fromOrders = 0;
+        if (soldItems is not null)
+        {
+            var known = rows.SelectMany(r => new[] { r.Name, r.ShopifyName }).Where(x => x.Length > 0)
+                .Select(Normalize).Concat(aliasTitles).ToHashSet();
+
+            foreach (var group in soldItems.Select(s => (Title: BaseTitle(s.Title), s.Price))
+                         .GroupBy(s => Normalize(s.Title)).OrderBy(g => g.Key))
+            {
+                if (known.Contains(group.Key)) continue;
+
+                var title = group.First().Title;
+                var type = ReviewSheet.GuessType(title);
+                var kind = ReviewSheet.GuessMaterialKind(title);
+                rows.Add(new SheetRow(
+                    null, title, type ?? "", kind == "gold" ? "זהב 14" : kind == "silver" ? "כסף" : "",
+                    null, null, group.Max(g => g.Price), "", "לא באתר", title, null,
+                    "מוצר שנמכר בהזמנות ישנות ואין לו מוצר בקטלוג. לאשר, להשלים משקל, או למחוק את השורה",
+                    type is null ? "" : "guess", kind is null ? "" : "guess", "new"));
+                fromOrders++;
+            }
+        }
+
+        var materials = ReadList(workbook, 1);
+        var types = ReadList(workbook, 4);
+        if (types.Count == 0) types = rows.Select(r => r.Type).Where(t => t.Length > 0).Concat(DefaultTypes).Distinct().OrderBy(t => t).ToList();
+
+        Write(rows, materials, types, outPath);
+        return (rows.Count, fromOrders, hinted);
+    }
+
+    private static List<string> ReadList(XLWorkbook workbook, int column)
+    {
+        var result = new List<string>();
+        if (workbook.TryGetWorksheet(ListsSheet, out var lists))
+        {
+            foreach (var cell in lists.Column(column).CellsUsed().Skip(1)) result.Add(cell.GetString().Trim());
+        }
+
+        return result;
+    }
+
+    // "Gold Ring - 54" is the product "Gold Ring" in size 54.
+    internal static string BaseTitle(string storeName)
+    {
+        var name = storeName.Trim();
+        var cut = name.LastIndexOf(" - ", StringComparison.Ordinal);
+        return cut > 0 ? name[..cut].Trim() : name;
+    }
+
+    private static string Join(string a, string b) => a.Length == 0 ? b : a + "; " + b;
+
+    private static string Normalize(string text) =>
+        string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)).ToLowerInvariant();
 
     // ── Import ───────────────────────────────────────────────────────────────
 
-    private record SheetProduct(int Row, Guid? Id, string Name, string Type, string Material, decimal Weight,
-        decimal Hours, decimal Price, string? Collections, string ShopifyName);
-
-    public static async Task<SheetUpdateResult> ImportAsync(AppDbContext db, Guid businessId, string path, bool dryRun)
+    public static async Task<SheetUpdateResult> ImportAsync(
+        AppDbContext db, Guid businessId, string path, bool dryRun, bool deleteMissing = false)
     {
         var tenant = ProductImporter.TenantFor(businessId);
-        var pricing = new PricingService(db, tenant);
-        var products = new ProductsService(db, tenant, pricing);
-        var collectionsService = new CollectionsService(db, tenant);
+        var products = new ProductsService(db, tenant, new PricingService(db, tenant));
 
         var current = (await products.GetProductsAsync()).Products.ToDictionary(p => p.Id);
-        var collectionId = (await collectionsService.GetCollectionsAsync())
+        var collectionId = (await new CollectionsService(db, tenant).GetCollectionsAsync())
             .ToDictionary(c => c.Name.Trim(), c => c.Id, StringComparer.OrdinalIgnoreCase);
         var materials = (await db.Materials.AsNoTracking().Where(m => m.BusinessId == businessId).Select(m => m.Name).ToListAsync())
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var additionTypes = (await db.ProductAdditionTypes.AsNoTracking().Where(t => t.BusinessId == businessId).ToListAsync())
-            .ToDictionary(t => t.Name.Trim(), t => t, StringComparer.OrdinalIgnoreCase);
+            .ToDictionary(t => t.Name.Trim(), t => t.AllowsCustomName, StringComparer.OrdinalIgnoreCase);
 
         var changes = new List<string>();
         var problems = new List<string>();
+        var seen = new HashSet<Guid>();
         int updated = 0, unchanged = 0, created = 0;
 
         using var workbook = new XLWorkbook(path);
         if (!workbook.TryGetWorksheet(ProductsSheet, out var sheet))
             throw new InvalidOperationException($"הגיליון '{ProductsSheet}' לא נמצא בקובץ");
 
-        // The additions, grouped by product. Without that sheet the additions are left exactly as they are.
-        Dictionary<Guid, List<ProductAdditionDto>>? additionsByProduct = null;
-        if (workbook.TryGetWorksheet(AdditionsSheet, out var additionsSheet))
-        {
-            additionsByProduct = [];
-            var cols = Columns(additionsSheet);
-            foreach (var row in additionsSheet.RowsUsed().Skip(1))
-            {
-                var typeText = Text(row, cols, AType);
-                var idText = Text(row, cols, AProductId);
-                if (typeText.Length == 0 && idText.Length == 0) continue;
-
-                if (!Guid.TryParse(idText, out var productId) || !current.ContainsKey(productId))
-                {
-                    problems.Add($"תוספות שורה {row.RowNumber()}: מזהה המוצר חסר או לא מוכר");
-                    continue;
-                }
-
-                if (!additionTypes.TryGetValue(typeText, out var type))
-                {
-                    problems.Add($"תוספות שורה {row.RowNumber()}: סוג תוספת לא מוכר '{typeText}'");
-                    additionsByProduct[productId] = [.. additionsByProduct.GetValueOrDefault(productId) ?? [], new ProductAdditionDto("", null, 0, 1)];
-                    continue;
-                }
-
-                var price = Number(row, cols, APrice) ?? 0m;
-                var quantity = (int)(Number(row, cols, AQuantity) ?? 1m);
-                var custom = Text(row, cols, ACustom);
-                if (type.AllowsCustomName && custom.Length == 0)
-                {
-                    problems.Add($"תוספות שורה {row.RowNumber()}: לתוספת '{type.Name}' חייב להיות שם חופשי");
-                    additionsByProduct[productId] = [.. additionsByProduct.GetValueOrDefault(productId) ?? [], new ProductAdditionDto("", null, 0, 1)];
-                    continue;
-                }
-
-                var list = additionsByProduct.GetValueOrDefault(productId) ?? [];
-                list.Add(new ProductAdditionDto(type.Name, type.AllowsCustomName ? custom : null, price, Math.Max(quantity, 1)));
-                additionsByProduct[productId] = list;
-            }
-        }
-
         var productColumns = Columns(sheet);
-        foreach (var column in new[] { HId, HName })
-        {
-            if (!productColumns.ContainsKey(column))
-                throw new InvalidOperationException($"העמודה '{column}' חסרה בגיליון המוצרים");
-        }
+        if (!productColumns.ContainsKey(HName))
+            throw new InvalidOperationException($"העמודה '{HName}' חסרה בגיליון המוצרים");
+
+        // The old layout kept the additions on a sheet of their own; without that and without a column, they stay as they are.
+        Dictionary<Guid, List<ProductAdditionDto>>? legacyAdditions = null;
+        if (!productColumns.ContainsKey(HAdditions) && workbook.TryGetWorksheet(AdditionsSheet, out var additionsSheet))
+            legacyAdditions = ReadLegacyAdditions(additionsSheet, additionTypes, current.Keys.ToHashSet(), problems);
 
         foreach (var row in sheet.RowsUsed().Skip(1))
         {
@@ -303,6 +471,7 @@ public static class ProductSheet
                 }
 
                 id = parsed;
+                seen.Add(parsed); // a row with a problem must never make its product look removed
             }
 
             if (id is { } known && !current.ContainsKey(known))
@@ -311,15 +480,19 @@ public static class ProductSheet
                 continue;
             }
 
+            if (name.Length == 0)
+            {
+                problems.Add($"שורה {n}: שם המוצר ריק");
+                continue;
+            }
+
+            var existing = id is { } k ? current[k] : null;
             var weight = Number(row, productColumns, HWeight);
             var hours = Number(row, productColumns, HHours);
             var price = Number(row, productColumns, HPrice);
-
-            var existing = id is { } k ? current[k] : null;
             var type = productColumns.ContainsKey(HType) ? Text(row, productColumns, HType) : existing?.Type ?? "";
             var material = productColumns.ContainsKey(HMaterial) ? Text(row, productColumns, HMaterial) : existing?.Material ?? "";
 
-            if (name.Length == 0) { problems.Add($"שורה {n}: שם המוצר ריק"); continue; }
             if (material.Length > 0 && !materials.Contains(material))
             {
                 problems.Add($"שורה {n} ({name}): חומר לא מוכר '{material}'");
@@ -352,6 +525,28 @@ public static class ProductSheet
                 continue;
             }
 
+            // The additions: from the cell, from the old sheet, or as they are.
+            List<ProductAdditionDto> additions;
+            if (productColumns.ContainsKey(HAdditions))
+            {
+                var (parsedAdditions, errors) = ParseAdditions(Text(row, productColumns, HAdditions), additionTypes);
+                if (errors.Count > 0)
+                {
+                    problems.Add($"שורה {n} ({name}): {string.Join("; ", errors)}");
+                    continue;
+                }
+
+                additions = parsedAdditions;
+            }
+            else if (legacyAdditions is not null && existing is not null)
+            {
+                additions = legacyAdditions.GetValueOrDefault(existing.Id) ?? [];
+            }
+            else
+            {
+                additions = existing?.Additions ?? [];
+            }
+
             var shopifyCell = Text(row, productColumns, HShopifyName);
             // Blank on both sides leaves it alone; blank where there was a name clears it.
             string? shopifyName = shopifyCell.Length > 0 ? shopifyCell : existing?.ShopifyName is { Length: > 0 } ? "" : null;
@@ -359,11 +554,7 @@ public static class ProductSheet
             var dto = new SaveProductDto(
                 type, name, material,
                 weight ?? existing?.Weight ?? 0, hours ?? existing?.AdditionalWorkHours ?? 0, price ?? existing?.SitePrice ?? 0,
-                additionsByProduct is not null && existing is not null
-                    ? additionsByProduct.GetValueOrDefault(existing.Id) ?? []
-                    : existing?.Additions ?? [],
-                collectionIds ?? existing?.CollectionIds ?? [],
-                shopifyName);
+                additions, collectionIds ?? existing?.CollectionIds ?? [], shopifyName);
 
             if (existing is null)
             {
@@ -390,12 +581,6 @@ public static class ProductSheet
                 continue;
             }
 
-            if (existing.Additions.Any(a => a.TypeName.Length == 0) || dto.Additions.Any(a => a.TypeName.Length == 0))
-            {
-                problems.Add($"שורה {n} ({name}): יש בעיה בתוספות שלו, ולכן לא עודכן");
-                continue;
-            }
-
             try
             {
                 if (!dryRun) await products.UpdateProductAsync(existing.Id, dto);
@@ -409,7 +594,79 @@ public static class ProductSheet
             }
         }
 
-        return new SheetUpdateResult(updated, unchanged, created, changes, problems);
+        // Products that are in the system but not in the file. They go only when asked to, and never a majority
+        // at once: a file that lost most of its rows is far more likely a mistake than a wish.
+        var notInFile = current.Values.Where(p => !seen.Contains(p.Id)).OrderBy(p => p.Name).ToList();
+        var deleted = 0;
+        if (deleteMissing && notInFile.Count > 0)
+        {
+            if (notInFile.Count > current.Count / 2)
+            {
+                problems.Add($"לא נמחקו מוצרים: הקובץ חסר {notInFile.Count} מתוך {current.Count} מוצרים (יותר ממחצית). זה נראה כמו טעות בקובץ");
+            }
+            else if (!dryRun)
+            {
+                foreach (var product in notInFile)
+                {
+                    try
+                    {
+                        await products.DeleteProductAsync(product.Id);
+                        deleted++;
+                    }
+                    catch (Exception ex)
+                    {
+                        db.ChangeTracker.Clear();
+                        problems.Add($"מחיקת '{product.Name}': {ex.Message}");
+                    }
+                }
+            }
+        }
+
+        return new SheetUpdateResult(
+            updated, unchanged, created, changes, problems,
+            notInFile.Select(p => $"{p.Name} ({p.Type}, {p.Material})").ToList(), deleted);
+    }
+
+    private static Dictionary<Guid, List<ProductAdditionDto>> ReadLegacyAdditions(
+        IXLWorksheet sheet, IReadOnlyDictionary<string, bool> types, HashSet<Guid> productIds, List<string> problems)
+    {
+        var result = new Dictionary<Guid, List<ProductAdditionDto>>();
+        var cols = Columns(sheet);
+
+        foreach (var row in sheet.RowsUsed().Skip(1))
+        {
+            var typeText = Text(row, cols, AType);
+            var idText = Text(row, cols, AProductId);
+            if (typeText.Length == 0 && idText.Length == 0) continue;
+
+            if (!Guid.TryParse(idText, out var productId) || !productIds.Contains(productId))
+            {
+                problems.Add($"תוספות שורה {row.RowNumber()}: מזהה המוצר חסר או לא מוכר");
+                continue;
+            }
+
+            if (!types.TryGetValue(typeText, out var allowsCustom))
+            {
+                problems.Add($"תוספות שורה {row.RowNumber()}: סוג תוספת לא מוכר '{typeText}'");
+                result[productId] = [.. result.GetValueOrDefault(productId) ?? [], new ProductAdditionDto("", null, 0, 1)];
+                continue;
+            }
+
+            var custom = Text(row, cols, ACustom);
+            if (allowsCustom && custom.Length == 0)
+            {
+                problems.Add($"תוספות שורה {row.RowNumber()}: לתוספת '{typeText}' חייב להיות שם חופשי");
+                result[productId] = [.. result.GetValueOrDefault(productId) ?? [], new ProductAdditionDto("", null, 0, 1)];
+                continue;
+            }
+
+            var list = result.GetValueOrDefault(productId) ?? [];
+            list.Add(new ProductAdditionDto(typeText, allowsCustom ? custom : null, Number(row, cols, APrice) ?? 0m,
+                Math.Max((int)(Number(row, cols, AQuantity) ?? 1m), 1)));
+            result[productId] = list;
+        }
+
+        return result;
     }
 
     // What differs between the product now and what the sheet says, in the owner's words.
@@ -421,18 +678,20 @@ public static class ProductSheet
             if (!string.Equals(a, b, StringComparison.Ordinal)) diff.Add($"{label}: {(a.Length == 0 ? "(ריק)" : a)} ← {(b.Length == 0 ? "(ריק)" : b)}");
         }
 
+        string Num(decimal d) => d.ToString("0.##", CultureInfo.InvariantCulture);
+
         Check("שם", now.Name, next.Name);
         Check("סוג", now.Type, next.Type);
         Check("חומר", now.Material, next.Material);
-        Check("משקל", now.Weight.ToString("0.##", CultureInfo.InvariantCulture), next.Weight.ToString("0.##", CultureInfo.InvariantCulture));
-        Check("שעות נוספות", now.AdditionalWorkHours.ToString("0.##", CultureInfo.InvariantCulture), next.AdditionalWorkHours.ToString("0.##", CultureInfo.InvariantCulture));
-        Check("מחיר", now.SitePrice.ToString("0.##", CultureInfo.InvariantCulture), next.SitePrice.ToString("0.##", CultureInfo.InvariantCulture));
+        Check("משקל", Num(now.Weight), Num(next.Weight));
+        Check("שעות נוספות", Num(now.AdditionalWorkHours), Num(next.AdditionalWorkHours));
+        Check("מחיר", Num(now.SitePrice), Num(next.SitePrice));
 
         if (!now.CollectionIds.OrderBy(i => i).SequenceEqual(next.CollectionIds.OrderBy(i => i))) diff.Add("אוספים");
 
         string Adds(IEnumerable<ProductAdditionDto> list) =>
             string.Join(",", list.Select(a => $"{a.TypeName}|{a.CustomName}|{a.Price:0.##}|{a.Quantity}").OrderBy(s => s, StringComparer.Ordinal));
-        if (Adds(now.Additions) != Adds(next.Additions)) diff.Add("תוספות");
+        if (Adds(now.Additions) != Adds(next.Additions)) diff.Add($"תוספות: {FormatAdditions(next.Additions)}");
 
         if (next.ShopifyName is not null && next.ShopifyName != (now.ShopifyName ?? ""))
             diff.Add($"שם בשופיפי: {now.ShopifyName ?? "(ריק)"} ← {(next.ShopifyName.Length == 0 ? "(ריק)" : next.ShopifyName)}");
@@ -440,12 +699,19 @@ public static class ProductSheet
         return diff;
     }
 
-    // Header text → column number.
+    // Header text → column number. The earlier layout called the collections column a longer name.
     internal static Dictionary<string, int> Columns(IXLWorksheet sheet)
     {
         var result = new Dictionary<string, int>();
-        var header = sheet.Row(1);
-        foreach (var cell in header.CellsUsed()) result.TryAdd(cell.GetString().Trim(), cell.Address.ColumnNumber);
+        foreach (var cell in sheet.Row(1).CellsUsed())
+        {
+            var header = cell.GetString().Trim();
+            if (header.StartsWith(HCollections, StringComparison.Ordinal)) header = HCollections;
+            // The review file named its notes column with a longer text; it is the same column.
+            if (header.StartsWith(HNotes, StringComparison.Ordinal)) header = HNotes;
+            result.TryAdd(header, cell.Address.ColumnNumber);
+        }
+
         return result;
     }
 

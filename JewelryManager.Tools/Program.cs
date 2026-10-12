@@ -12,14 +12,16 @@ using Microsoft.Extensions.Configuration;
 // The connection string comes from JewelryManager.Api/appsettings.Development.json or the
 // ConnectionStrings__Default environment variable. Nothing secret is printed.
 
-if (args.Length < 1 || (args[0] != "status" && args.Length < 2)
-    || args[0] is not ("status" or "import-products" or "import-orders" or "export-products" or "update-products" or "prepare-review" or "reprice-products" or "read-invoices" or "export-settings" or "import-settings"))
+if (args.Length < 1 || (args[0] is not ("status" or "relink-orders") && args.Length < 2)
+    || args[0] is not ("status" or "import-products" or "import-orders" or "export-products" or "update-products" or "prepare-review" or "make-single-sheet" or "relink-orders" or "reprice-products" or "read-invoices" or "export-settings" or "import-settings"))
 {
     Console.WriteLine("Usage: status   (what is in the database this tool points at)");
     Console.WriteLine("       import-products <file.json> [--dry-run]");
     Console.WriteLine("       import-orders <orders_export.csv> [--dry-run]   (the store's old orders, as finished sales)");
     Console.WriteLine("       export-products <products.xlsx>   (every product in an Excel file to fill in)");
-    Console.WriteLine("       update-products <products.xlsx> [--dry-run]   (applies the edited Excel file back)");
+    Console.WriteLine("       update-products <products.xlsx> [--dry-run] [--delete-missing]   (applies the edited Excel file back; --delete-missing also removes products that are not in the file)");
+    Console.WriteLine("       make-single-sheet <in.xlsx> <out.xlsx> [--orders <orders_export.csv>] [--hints <hints.json>]   (the one-sheet layout; needs no database)");
+    Console.WriteLine("       relink-orders [--dry-run] [--hints <hints.json>]   (ties old order lines that have no product to catalog products by name)");
     Console.WriteLine("       prepare-review <in.xlsx> <out.xlsx>   (fills what can be worked out from the names and marks the rest, for a careful look; needs no database)");
     Console.WriteLine("       reprice-products <file.json> [--dry-run]   (rows without a sheet price get the recommended price)");
     Console.WriteLine("       export-settings <file.json>   (saves the settings of this database)");
@@ -36,6 +38,39 @@ var config = new ConfigurationBuilder()
     .Build();
 
 // Needs no database: it only rewrites an Excel file.
+if (args[0] == "make-single-sheet")
+{
+    if (args.Length < 3)
+    {
+        Console.WriteLine("Usage: make-single-sheet <in.xlsx> <out.xlsx> [--orders <orders_export.csv>] [--hints <hints.json>]");
+        return 1;
+    }
+
+    string? Option(string name)
+    {
+        var at = Array.IndexOf(args, name);
+        return at >= 0 && at + 1 < args.Length ? args[at + 1] : null;
+    }
+
+    List<(string Title, decimal Price)>? sold = null;
+    if (Option("--orders") is { } ordersPath)
+    {
+        var csv = JewelryManager.Api.Features.Shopify.ShopifyOrdersCsvReader.Read(await File.ReadAllTextAsync(ordersPath));
+        sold = csv.Orders.SelectMany(o => o.Lines).Select(l => (l.Title, l.UnitPrice)).ToList();
+    }
+
+    List<JewelryManager.Api.Features.Orders.Dtos.ProductAlias>? hints = null;
+    if (Option("--hints") is { } hintsPath)
+    {
+        hints = System.Text.Json.JsonSerializer.Deserialize<List<JewelryManager.Api.Features.Orders.Dtos.ProductAlias>>(
+            await File.ReadAllTextAsync(hintsPath), new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+    }
+
+    var converted = ProductSheet.Convert(args[1], args[2], sold, hints);
+    Console.WriteLine($"Saved {args[2]}: {converted.Rows} products ({converted.Hinted} tied to a store name, {converted.FromOrders} added from the old orders)");
+    return 0;
+}
+
 if (args[0] == "prepare-review")
 {
     if (args.Length < 3)
@@ -113,12 +148,32 @@ if (args[0] == "export-products")
 
 if (args[0] == "update-products")
 {
-    var sheet = await ProductSheet.ImportAsync(db, business[0].Id, args[1], dryRun);
+    var deleteMissing = args.Contains("--delete-missing");
+    var sheet = await ProductSheet.ImportAsync(db, business[0].Id, args[1], dryRun, deleteMissing);
 
     Console.WriteLine($"{(dryRun ? "Would update" : "Updated")}: {sheet.Updated}   Unchanged: {sheet.Unchanged}   New products: {sheet.Created}   Problems: {sheet.Problems.Count}");
+    Console.WriteLine($"In the system but not in the file: {sheet.NotInFile.Count}   {(deleteMissing ? (dryRun ? "(would be deleted)" : $"Deleted: {sheet.Deleted}") : "(kept: add --delete-missing to remove them)")}");
     foreach (var change in sheet.Changes) Console.WriteLine("CHANGE   " + change);
+    foreach (var gone in sheet.NotInFile) Console.WriteLine((deleteMissing ? "DELETE   " : "NOT IN FILE   ") + gone);
     foreach (var problem in sheet.Problems) Console.WriteLine("PROBLEM  " + problem);
     return sheet.Problems.Count == 0 ? 0 : 2;
+}
+
+if (args[0] == "relink-orders")
+{
+    List<JewelryManager.Api.Features.Orders.Dtos.ProductAlias>? aliases = null;
+    var hintsAt = Array.IndexOf(args, "--hints");
+    if (hintsAt >= 0 && hintsAt + 1 < args.Length)
+    {
+        aliases = System.Text.Json.JsonSerializer.Deserialize<List<JewelryManager.Api.Features.Orders.Dtos.ProductAlias>>(
+            await File.ReadAllTextAsync(args[hintsAt + 1]), new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+    }
+
+    var relink = await new JewelryManager.Api.Features.Orders.OrdersService(db, ProductImporter.TenantFor(business[0].Id)).RelinkLinesAsync(dryRun, aliases);
+    Console.WriteLine($"{(dryRun ? "Would tie" : "Tied")}: {relink.LinesLinked} order lines in {relink.Orders} orders to catalog products");
+    Console.WriteLine($"Still without a product: {relink.StillWithoutProduct.Count}");
+    foreach (var name in relink.StillWithoutProduct) Console.WriteLine("NO PRODUCT  " + name);
+    return 0;
 }
 
 var importer = new ProductImporter(db, business[0].Id);
