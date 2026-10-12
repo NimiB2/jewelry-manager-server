@@ -770,4 +770,31 @@ public class ShopifyTests(PostgresFixture pg)
         Assert.Null(created.CustomerMessage);
         Assert.False(created.ReceiptSent);
     }
+
+    [Fact]
+    public async Task Attention_CountsAMessageStillToSend_UntilItIsMarkedSent()
+    {
+        await EnsureSetupAsync();
+        var u = Unique();
+        var storeId = "Q" + u;
+        await AddProductAsync("מוצר " + u, 100, "Ring " + u, storeId);
+
+        var before = await WithOrders(s => s.GetAttentionAsync());
+
+        await WithOrders(s => s.ImportStoreOrderAsync(
+            StoreOrder("C1" + u, 0, Line("Ring " + u, storeId, 100)) with { Phone = "050-1234567" }));
+        var order = (await WithOrders(s => s.GetPendingOrdersAsync())).Single(o => o.ExternalName == "#C1" + u);
+        await WithOrders(s => s.ApproveAsync(order.Id)); // approved, but the message was not sent yet
+
+        var waiting = await WithOrders(s => s.GetAttentionAsync());
+        Assert.Equal(before.MessagesToSend + 1, waiting.MessagesToSend);
+        Assert.Equal(before.Total + 1, waiting.Total);
+        Assert.Equal(before.Pending, waiting.Pending);
+
+        await WithOrders(s => s.SetCustomerNotifiedAsync(order.Id, true));
+
+        var done = await WithOrders(s => s.GetAttentionAsync());
+        Assert.Equal(before.MessagesToSend, done.MessagesToSend);
+        Assert.Equal(before.Total, done.Total);
+    }
 }

@@ -558,10 +558,16 @@ public class OrdersService(AppDbContext db, CurrentUserAccessor tenant)
 
         var pending = await live.CountAsync(o => o.IsPendingApproval);
         var alerts = await live.CountAsync(o => o.StoreAlert != StoreOrderAlert.None);
-        // An order that is both waiting and flagged is one thing to look at, not two.
-        var total = await live.CountAsync(o => o.IsPendingApproval || o.StoreAlert != StoreOrderAlert.None);
 
-        return new OrdersAttentionResponse(pending, alerts, total);
+        // The number is kept only until the summary is sent, so "has a number and was not marked sent" means
+        // "there is a message waiting to go out".
+        var toSend = await live.CountAsync(o => o.Source == OrderSource.Shopify && o.CustomerNotifiedAt == null && o.CustomerPhone != null);
+
+        // An order that is waiting, flagged and unsent is one thing to look at, not three.
+        var total = await live.CountAsync(o => o.IsPendingApproval || o.StoreAlert != StoreOrderAlert.None
+            || (o.Source == OrderSource.Shopify && o.CustomerNotifiedAt == null && o.CustomerPhone != null));
+
+        return new OrdersAttentionResponse(pending, alerts, toSend, total);
     }
 
     public async Task<List<OrderResponse>> GetPendingOrdersAsync()

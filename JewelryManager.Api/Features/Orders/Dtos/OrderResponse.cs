@@ -51,8 +51,11 @@ public record OrderResponse(
     string? CustomerMessage = null,
     DateTime? CustomerNotifiedAt = null);
 
-/// <summary>What needs the owner's attention: orders waiting for approval and orders the store changed.</summary>
-public record OrdersAttentionResponse(int Pending, int Alerts, int Total);
+/// <summary>
+/// What needs the owner's attention: orders waiting for approval, orders the store changed, and store
+/// orders whose summary message still has to be sent. Total counts each order once.
+/// </summary>
+public record OrdersAttentionResponse(int Pending, int Alerts, int MessagesToSend, int Total);
 
 /// <summary>Totals over exactly the orders the list is showing (e.g. one month).</summary>
 public record OrdersSummary(int Count, decimal TotalFinalAmount);
