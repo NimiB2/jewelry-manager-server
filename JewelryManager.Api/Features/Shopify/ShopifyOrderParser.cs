@@ -29,7 +29,9 @@ public record IncomingOrder(
     IReadOnlyList<IncomingLine> Lines,
     // The store's payment state ("paid", "pending", "refunded"...), and the discounts that were applied.
     string? FinancialStatus = null,
-    IReadOnlyList<IncomingDiscount>? Discounts = null)
+    IReadOnlyList<IncomingDiscount>? Discounts = null,
+    // The customer's phone, if the store has one (account, shipping or billing address, or the order itself).
+    string? Phone = null)
 {
     /// <summary>
     /// Why the price went down, in the owner's words: the coupon code or the sale's name, and which items
@@ -131,7 +133,8 @@ public static class ShopifyOrderParser
                 Text(root, "note", 2_000),
                 lines,
                 Text(root, "financial_status", 30),
-                Discounts(root, items));
+                Discounts(root, items),
+                PhoneOf(root));
         }
         catch (JsonException)
         {
@@ -225,6 +228,19 @@ public static class ShopifyOrderParser
         }
 
         return result;
+    }
+
+    private static string? PhoneOf(JsonElement root)
+    {
+        if (Text(root, "phone", 30) is { } own) return own;
+
+        foreach (var holder in new[] { "customer", "shipping_address", "billing_address" })
+        {
+            if (root.TryGetProperty(holder, out var h) && h.ValueKind == JsonValueKind.Object && Text(h, "phone", 30) is { } phone)
+                return phone;
+        }
+
+        return null;
     }
 
     private static string? CustomerName(JsonElement root)

@@ -672,4 +672,52 @@ public class ShopifyTests(PostgresFixture pg)
         Assert.Equal(100m, income.Amount); // brought in line with the order
         Assert.Equal(1, await check.Tasks.CountAsync(t => t.OrderId == order.Id && t.IsAutomatic));
     }
+
+    [Fact]
+    public async Task AStoreOrder_ComesWithThePhoneAndTheMessage_ApprovalMarksTheReceiptSent_AndTheSummaryCanBeMarkedSent()
+    {
+        await EnsureSetupAsync();
+        var u = Unique();
+        var storeId = "M" + u;
+        await AddProductAsync("מוצר " + u, 100, "Ring " + u, storeId);
+
+        var incoming = StoreOrder("B1" + u, 0, Line("Ring " + u, storeId, 450)) with { Phone = "052-1234567" };
+        await WithOrders(s => s.ImportStoreOrderAsync(incoming));
+        var order = (await WithOrders(s => s.GetPendingOrdersAsync())).Single(o => o.ExternalName == "#B1" + u);
+
+        Assert.Equal("052-1234567", order.CustomerPhone);
+        Assert.Equal("972521234567", order.CustomerWhatsApp);
+        Assert.Contains("שם המזמין/ה: דנה כהן", order.CustomerMessage);
+        Assert.Contains("• התכשיט: מוצר " + u, order.CustomerMessage); // the catalog name, not the store's
+        Assert.Contains("• מקדמה ששולמה: 450 ₪", order.CustomerMessage);
+        Assert.Null(order.CustomerNotifiedAt);
+        Assert.False(order.ReceiptSent);
+
+        // Marked as sent while the order still waits (the message goes out when she orders).
+        var sent = await WithOrders(s => s.SetCustomerNotifiedAsync(order.Id, true));
+        Assert.NotNull(sent.CustomerNotifiedAt);
+        Assert.True(sent.IsPendingApproval);
+
+        // The store already sent her the receipt, so approving marks it so.
+        var approved = await WithOrders(s => s.ApproveAsync(order.Id));
+        Assert.True(approved.ReceiptSent);
+        Assert.NotNull(approved.CustomerNotifiedAt);
+
+        Assert.Null((await WithOrders(s => s.SetCustomerNotifiedAsync(order.Id, false))).CustomerNotifiedAt);
+    }
+
+    [Fact]
+    public async Task AManualOrder_HasNoCustomerMessage_AndKeepsItsReceiptMarkAsIs()
+    {
+        await EnsureSetupAsync();
+        var u = Unique();
+        var product = await AddProductAsync("מוצר ידני " + u, 100);
+
+        var created = await WithOrders(s => s.CreateOrderAsync(new SaveOrderDto(
+            "לקוחה " + u, new DateOnly(2026, 10, 12), null,
+            [new OrderItemInputDto(null, product.Id, 1, null, null)], null)));
+
+        Assert.Null(created.CustomerMessage);
+        Assert.False(created.ReceiptSent);
+    }
 }

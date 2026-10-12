@@ -63,6 +63,11 @@ public class OrdersController(OrdersService service) : ControllerBase
     public Task<OrderResponse> SetReceiptSent(Guid id, UpdateReceiptSentDto dto) =>
         service.SetReceiptSentAsync(id, dto.ReceiptSent);
 
+    /// <summary>Marks that the order summary was sent to the customer (or takes the mark back).</summary>
+    [HttpPatch("{id:guid}/customer-notified")]
+    public Task<OrderResponse> SetCustomerNotified(Guid id, UpdateCustomerNotifiedDto dto) =>
+        service.SetCustomerNotifiedAsync(id, dto.Notified);
+
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> DeleteOrder(Guid id)
     {

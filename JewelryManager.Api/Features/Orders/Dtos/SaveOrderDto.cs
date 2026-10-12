@@ -41,6 +41,8 @@ public record UpdateOrderStatusDto(Data.Entities.OrderStatus Status);
 
 public record UpdateReceiptSentDto(bool ReceiptSent);
 
+public record UpdateCustomerNotifiedDto(bool Notified);
+
 public record UpdateOrderStageDto([Required, MaxLength(200)] string Stage);
 
 /// <summary>

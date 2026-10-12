@@ -378,6 +378,13 @@ namespace JewelryManager.Api.Migrations
                     b.Property<string>("Customer")
                         .HasColumnType("text");
 
+                    b.Property<DateTime?>("CustomerNotifiedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CustomerPhone")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
                     b.Property<DateOnly>("Date")
                         .HasColumnType("date");
 

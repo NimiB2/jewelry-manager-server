@@ -37,6 +37,11 @@ public class Order
     // (fulfilment, tags, payment status). Null for orders that did not come from the store.
     public string? StoreFingerprint { get; set; }
 
+    // The customer's phone as the store gave it (for sending her the order summary), and when that
+    // summary was sent. Only store orders have a phone.
+    public string? CustomerPhone { get; set; }
+    public DateTime? CustomerNotifiedAt { get; set; }
+
     // An order from the store waits for the owner's approval before it counts (income, task).
     public bool IsPendingApproval { get; set; }
 

@@ -237,6 +237,18 @@ public class OrdersService(AppDbContext db, CurrentUserAccessor tenant)
     }
 
     // A completed order always has its receipt, so the mark can only be removed after reopening it.
+    /// <summary>Whether the order summary was sent to the customer. Allowed while the order still waits too.</summary>
+    public async Task<OrderResponse> SetCustomerNotifiedAsync(Guid id, bool notified)
+    {
+        var order = await FindOrThrowAsync(id, asNoTracking: false);
+        order.CustomerNotifiedAt = notified ? DateTime.UtcNow : null;
+        order.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+
+        return await GetOrderAsync(id);
+    }
+
     public async Task<OrderResponse> SetReceiptSentAsync(Guid id, bool receiptSent)
     {
         var order = await FindOrThrowAsync(id, asNoTracking: false);
@@ -291,6 +303,7 @@ public class OrdersService(AppDbContext db, CurrentUserAccessor tenant)
             Source = OrderSource.Shopify, Status = OrderStatus.New, IsPendingApproval = true,
             ExternalId = incoming.ExternalId, ExternalName = incoming.DisplayName,
             StoreFingerprint = incoming.Fingerprint(),
+            CustomerPhone = incoming.Phone,
             LaborHourRate = settings.LaborHourRate, CreatedAt = now, UpdatedAt = now,
         };
 
@@ -647,6 +660,9 @@ public class OrdersService(AppDbContext db, CurrentUserAccessor tenant)
         order.IsPendingApproval = false;
         order.UpdatedAt = DateTime.UtcNow;
 
+        // The store sends the customer her receipt by itself, so an order from it is approved as "receipt sent".
+        if (order.Source == OrderSource.Shopify) order.ReceiptSent = true;
+
         // Not "new": an income or task that already exists for this order is reused, never added twice.
         await SyncBooksAsync(order, order.Items, isNew: false, taskIfMissing: true);
         await db.SaveChangesAsync();
@@ -917,7 +933,10 @@ public class OrdersService(AppDbContext db, CurrentUserAccessor tenant)
                     Math.Round(i.UnitPrice * i.Quantity, 2), i.WorkHours, i.Note,
                     i.ExternalProductId, o.IsPendingApproval && i.ProductId is null))
                 .ToList(),
-            o.ExternalName, o.IsPendingApproval, o.StoreAlert, o.StoreAlertAt);
+            o.ExternalName, o.IsPendingApproval, o.StoreAlert, o.StoreAlertAt,
+            o.CustomerPhone, CustomerMessageTemplate.WhatsAppNumber(o.CustomerPhone),
+            o.Source == OrderSource.Shopify ? CustomerMessageTemplate.Build(o) : null,
+            o.CustomerNotifiedAt);
     }
 
     private record SnapshotSettings(decimal LaborHourRate, string TestPrefix, Dictionary<string, decimal> MaterialHours);

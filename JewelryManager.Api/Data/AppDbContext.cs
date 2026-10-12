@@ -120,6 +120,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(o => o.Source).HasConversion<string>();
             e.Property(o => o.StoreAlert).HasConversion<string>().HasMaxLength(20).HasDefaultValue(StoreOrderAlert.None);
             e.Property(o => o.StoreFingerprint).HasMaxLength(64);
+            e.Property(o => o.CustomerPhone).HasMaxLength(30);
             e.HasOne<Business>().WithMany().HasForeignKey(o => o.BusinessId).OnDelete(DeleteBehavior.Cascade);
         });
 

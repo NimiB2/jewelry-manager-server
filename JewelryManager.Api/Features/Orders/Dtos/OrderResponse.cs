@@ -43,7 +43,13 @@ public record OrderResponse(
     bool IsPendingApproval = false,
     // What the store reported after the order arrived (cancelled, deleted, changed). A warning only.
     StoreOrderAlert StoreAlert = StoreOrderAlert.None,
-    DateTime? StoreAlertAt = null);
+    DateTime? StoreAlertAt = null,
+    // For a store order: the customer's phone, the same number as a WhatsApp link needs it (digits, with the
+    // country code), the order-summary message ready to send her, and when it was marked as sent.
+    string? CustomerPhone = null,
+    string? CustomerWhatsApp = null,
+    string? CustomerMessage = null,
+    DateTime? CustomerNotifiedAt = null);
 
 /// <summary>What needs the owner's attention: orders waiting for approval and orders the store changed.</summary>
 public record OrdersAttentionResponse(int Pending, int Alerts, int Total);
