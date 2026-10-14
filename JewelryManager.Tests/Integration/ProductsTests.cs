@@ -331,6 +331,38 @@ public class ProductsTests(PostgresFixture pg)
         Assert.Contains((await WithProducts(Business, s => s.GetProductsAsync())).Products, p => p.Id == id);
     }
 
+    [Fact]
+    public async Task CollectionWithFixedHours_SetsTheTotalHours_ForNewAndExistingProducts()
+    {
+        await ResetPricingSetupAsync();
+        var rings = await WithCollection("טבעות");
+
+        // A product that exists before the collection gets fixed hours.
+        var existing = await WithProducts(Business, s => s.CreateProductAsync(Ring([rings.Id], material: "זהב")));
+        Assert.Equal(2.5m, existing.Price!.LaborHours); // 2 gold hours + the 0.5 typed on the product
+
+        await using (var db = pg.NewDb())
+        {
+            await new CollectionsService(db, PostgresFixture.TenantFor(Business))
+                .SetFixedWorkHoursAsync(rings.Id, new UpdateCollectionWorkHoursDto(3.5m));
+        }
+
+        var updated = await WithProducts(Business, s => s.GetProductAsync(existing.Id));
+        Assert.Equal(3.5m, updated.Price!.LaborHours);
+        Assert.Equal(1.5m, updated.AdditionalWorkHours);
+
+        // A new product: whatever extra hours were typed, the collection decides the total.
+        var silver = await WithProducts(Business, s => s.CreateProductAsync(Ring([rings.Id], material: "כסף")));
+        Assert.Equal(3.5m, silver.Price!.LaborHours);
+
+        // The calculator preview agrees with the saved product.
+        await using var previewDb = pg.NewDb();
+        var tenant = PostgresFixture.TenantFor(Business);
+        var preview = await new PricingService(previewDb, tenant).CalculateAsync(
+            new CalculatePriceDto("כסף", 5, 0.5m, [Stone], [rings.Id]));
+        Assert.Equal(3.5m, preview.LaborHours);
+    }
+
     private async Task<Collection> WithCollection(string name)
     {
         await using var db = pg.NewDb();

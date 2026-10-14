@@ -309,6 +309,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         // ── Collection ────────────────────────────────────────────────────────
         b.Entity<Collection>(e =>
         {
+            e.Property(c => c.FixedWorkHours).HasPrecision(18, 4);
             e.HasIndex(c => c.BusinessId);
 
             e.HasOne(c => c.Business)

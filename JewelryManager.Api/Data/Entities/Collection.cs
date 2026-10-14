@@ -9,6 +9,10 @@ public class Collection
     public string Name { get; set; } = string.Empty;
     public bool IsPermanent { get; set; }
 
+    // When set, every piece in this collection takes exactly this many work hours in total (material hours
+    // included), e.g. engagement rings. Null = the usual material hours plus the product's own extra hours.
+    public decimal? FixedWorkHours { get; set; }
+
     // Stable internal key for permanent collections (e.g. "general").
     // Independent of the display name, which owners can rename.
     public string? Key { get; set; }

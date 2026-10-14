@@ -51,6 +51,7 @@ public class ProductsService(AppDbContext db, CurrentUserAccessor tenant, Pricin
                 .ToList(),
         };
         Apply(product, dto, additions);
+        await ApplyFixedHoursAsync(product, collectionIds);
         product.Additions = additions;
 
         db.Products.Add(product);
@@ -75,6 +76,7 @@ public class ProductsService(AppDbContext db, CurrentUserAccessor tenant, Pricin
 
         db.ProductAdditions.RemoveRange(product.Additions);
         Apply(product, dto, additions);
+        await ApplyFixedHoursAsync(product, collectionIds);
         product.UpdatedAt = DateTime.UtcNow;
 
         // Added explicitly: through the navigation EF would treat objects that already have an Id as existing rows.
@@ -106,6 +108,17 @@ public class ProductsService(AppDbContext db, CurrentUserAccessor tenant, Pricin
         var product = await FindOrThrowAsync(id, asNoTracking: false);
         db.Products.Remove(product);
         await db.SaveChangesAsync();
+    }
+
+    // A collection with fixed work hours (engagement rings) decides the piece's total hours, so the stored
+    // extra hours become what is left after the material's own hours.
+    private async Task ApplyFixedHoursAsync(Product product, IEnumerable<Guid> collectionIds)
+    {
+        var fixedHours = await pricing.FixedHoursAsync(collectionIds);
+        if (fixedHours is null) return;
+
+        var settings = await pricing.LoadSettingsAsync();
+        product.AdditionalWorkHours = PricingService.ExtraHoursFor(settings, product.Material, product.AdditionalWorkHours, fixedHours);
     }
 
     private static void Apply(Product product, SaveProductDto dto, List<ProductAddition> additions)

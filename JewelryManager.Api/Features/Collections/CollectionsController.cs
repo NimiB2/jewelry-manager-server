@@ -20,6 +20,10 @@ public class CollectionsController(CollectionsService service) : ControllerBase
     public Task<Collection> RenameCollection(Guid id, UpdateCollectionDto dto) =>
         service.RenameCollectionAsync(id, dto);
 
+    [HttpPatch("{id:guid}/work-hours")]
+    public Task<Collection> SetWorkHours(Guid id, UpdateCollectionWorkHoursDto dto) =>
+        service.SetFixedWorkHoursAsync(id, dto);
+
     [HttpDelete("{id:guid}")]
     public Task<Collection> DeleteCollection(Guid id) => service.DeleteCollectionAsync(id);
 }

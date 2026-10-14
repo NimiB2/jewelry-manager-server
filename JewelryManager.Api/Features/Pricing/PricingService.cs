@@ -65,7 +65,30 @@ public class PricingService(AppDbContext db, CurrentUserAccessor tenant)
     public async Task<PriceBreakdown> CalculateAsync(CalculatePriceDto dto)
     {
         var settings = await LoadSettingsAsync();
-        return Calculate(settings, dto.Material, dto.Weight, dto.AdditionalWorkHours, AdditionsCost(dto.Additions));
+        var fixedHours = await FixedHoursAsync(dto.CollectionIds);
+        var extraHours = ExtraHoursFor(settings, dto.Material, dto.AdditionalWorkHours, fixedHours);
+        return Calculate(settings, dto.Material, dto.Weight, extraHours, AdditionsCost(dto.Additions));
+    }
+
+    /// <summary>The fixed total work hours of the given collections, or null when none of them sets one.</summary>
+    public async Task<decimal?> FixedHoursAsync(IEnumerable<Guid>? collectionIds)
+    {
+        var ids = collectionIds?.ToList();
+        if (ids is null || ids.Count == 0) return null;
+
+        var businessId = tenant.GetBusinessId();
+        return await db.Collections.AsNoTracking()
+            .Where(c => c.BusinessId == businessId && ids.Contains(c.Id) && c.FixedWorkHours != null)
+            .MaxAsync(c => c.FixedWorkHours);
+    }
+
+    /// <summary>The extra hours on top of the material's hours: a fixed total replaces the product's own extra.</summary>
+    public static decimal ExtraHoursFor(PricingSettings s, string material, decimal productExtraHours, decimal? fixedTotalHours)
+    {
+        if (fixedTotalHours is not { } total || !s.Materials.TryGetValue(material, out var m))
+            return productExtraHours;
+
+        return Math.Max(0, total - m.LaborHours);
     }
 
     public static decimal AdditionsCost(IEnumerable<ProductAdditionDto>? additions) =>

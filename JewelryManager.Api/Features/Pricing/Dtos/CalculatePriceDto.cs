@@ -8,4 +8,5 @@ public record CalculatePriceDto(
     [Required] string Material,
     [Range(0, 1_000_000)] decimal Weight,
     [Range(0, 1_000_000)] decimal AdditionalWorkHours,
-    List<ProductAdditionDto>? Additions);
+    List<ProductAdditionDto>? Additions,
+    List<Guid>? CollectionIds = null);

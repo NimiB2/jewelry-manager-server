@@ -88,6 +88,7 @@ builder.Services.AddScoped<JewelryManager.Api.Features.Search.SearchService>();
 builder.Services.AddScoped<ExpensesService>();
 builder.Services.AddScoped<IncomesService>();
 builder.Services.AddScoped<FinancesService>();
+builder.Services.AddScoped<FinanceAnalysisService>();
 builder.Services.AddScoped<TasksService>();
 builder.Services.AddScoped<InvoicesService>();
 builder.Services.AddScoped<InvoiceReadingService>();

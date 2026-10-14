@@ -94,6 +94,39 @@ public class FinancesTests(PostgresFixture pg)
     }
 
     [Fact]
+    public async Task Analysis_SplitsExpensesByCategory_AndValuesTheWorkHours()
+    {
+        var b = pg.BusinessK;
+        await WithExpenses(b, s => s.CreateExpenseAsync(Expense(D(2025, 5, 2), 300) with { TypeName = "חומרים", GroupName = "הזמנות" }));
+        await WithExpenses(b, s => s.CreateExpenseAsync(Expense(D(2025, 5, 9), 100) with { TypeName = "אריזה", GroupName = "הזמנות" }));
+        await WithExpenses(b, s => s.CreateExpenseAsync(Expense(D(2025, 4, 9), 200) with { TypeName = "חומרים" }));
+
+        // An order's income with its frozen hours and hourly rate: 3.5 h x 80 = 280 salary.
+        await using (var db = pg.NewDb())
+        {
+            var now = DateTime.UtcNow;
+            db.Incomes.Add(new Income
+            {
+                Id = Guid.NewGuid(), BusinessId = b, Date = D(2025, 5, 10), Category = IncomeCategory.Sales,
+                Description = "הזמנה", Amount = 1000, WorkHours = 3.5m, LaborHourRate = 80, CreatedAt = now, UpdatedAt = now,
+            });
+            await db.SaveChangesAsync();
+        }
+
+        await using var read = pg.NewDb();
+        var analysis = await new FinanceAnalysisService(read, PostgresFixture.TenantFor(b)).GetAnalysisAsync(2025, 5);
+
+        Assert.Equal(400, analysis.Totals.Expenses);
+        Assert.Equal(1000, analysis.Totals.Income);
+        Assert.Equal(280, analysis.Totals.Salary);
+        Assert.Equal(280, analysis.Months[4].Salary);
+
+        var materials = analysis.ByCategory.Single(s => s.Name == "חומרים");
+        Assert.Equal((300m, 75m, 200m), (materials.Amount, materials.Percent, materials.PreviousAmount));
+        Assert.Equal(400, analysis.ByGroup.Single(s => s.Name == "הזמנות").Amount);
+    }
+
+    [Fact]
     public async Task OtherBusinesses_NeverSeeTheRows()
     {
         var created = await WithExpenses(pg.BusinessE, s => s.CreateExpenseAsync(Expense(D(2024, 1, 1), 10, "פרטי")));

@@ -61,6 +61,10 @@ namespace JewelryManager.Api.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<decimal?>("FixedWorkHours")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)");
+
                     b.Property<bool>("IsPermanent")
                         .HasColumnType("boolean");
 

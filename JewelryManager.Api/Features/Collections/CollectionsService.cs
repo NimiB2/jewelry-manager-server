@@ -45,6 +45,42 @@ public class CollectionsService(AppDbContext db, CurrentUserAccessor tenant)
         return collection;
     }
 
+    /// <summary>
+    /// Sets (or clears) the fixed total work hours of a collection. The products already in it take the new
+    /// value at once; clearing leaves their stored hours as they are.
+    /// </summary>
+    public async Task<Collection> SetFixedWorkHoursAsync(Guid id, UpdateCollectionWorkHoursDto dto)
+    {
+        var collection = await FindOrThrowAsync(id);
+        var businessId = tenant.GetBusinessId();
+
+        await using var tx = await db.Database.BeginTransactionAsync();
+
+        collection.FixedWorkHours = dto.FixedWorkHours;
+        collection.UpdatedAt = DateTime.UtcNow;
+
+        if (dto.FixedWorkHours is { } total)
+        {
+            var materialHours = await db.Materials.AsNoTracking()
+                .Where(m => m.BusinessId == businessId)
+                .ToDictionaryAsync(m => m.Name, m => m.LaborHours);
+
+            var products = await db.Products
+                .Where(p => p.BusinessId == businessId && p.Collections.Any(pc => pc.CollectionId == id))
+                .ToListAsync();
+
+            foreach (var product in products)
+            {
+                product.AdditionalWorkHours = Math.Max(0, total - materialHours.GetValueOrDefault(product.Material));
+                product.UpdatedAt = DateTime.UtcNow;
+            }
+        }
+
+        await db.SaveChangesAsync();
+        await tx.CommitAsync();
+        return collection;
+    }
+
     public async Task<Collection> DeleteCollectionAsync(Guid id)
     {
         var collection = await FindOrThrowAsync(id);
