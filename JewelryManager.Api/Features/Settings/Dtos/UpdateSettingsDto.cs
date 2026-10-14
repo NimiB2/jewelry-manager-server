@@ -47,5 +47,9 @@ public record UpdateSettingsDto(
     // The expense types she picks from when recording an expense.
     List<string>? ExpenseTypes = null,
     // The suppliers she picks from when recording an expense.
-    List<string>? ExpenseSuppliers = null
+    List<string>? ExpenseSuppliers = null,
+    // The main groups expenses are sorted into (orders, business, home...).
+    List<string>? ExpenseGroups = null,
+    // The categories general tasks are sorted into.
+    List<string>? TaskCategories = null
 );

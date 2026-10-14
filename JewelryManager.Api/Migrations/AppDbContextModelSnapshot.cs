@@ -133,6 +133,9 @@ namespace JewelryManager.Api.Migrations
                         .HasMaxLength(300)
                         .HasColumnType("character varying(300)");
 
+                    b.Property<string>("GroupName")
+                        .HasColumnType("text");
+
                     b.Property<bool>("HasReceipt")
                         .HasColumnType("boolean");
 
@@ -178,6 +181,31 @@ namespace JewelryManager.Api.Migrations
                     b.HasIndex("BusinessId", "Date");
 
                     b.ToTable("Expenses");
+                });
+
+            modelBuilder.Entity("JewelryManager.Api.Data.Entities.ExpenseGroup", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("BusinessId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BusinessId", "Name")
+                        .IsUnique();
+
+                    b.ToTable("ExpenseGroups");
                 });
 
             modelBuilder.Entity("JewelryManager.Api.Data.Entities.ExpenseSupplier", b =>
@@ -796,6 +824,9 @@ namespace JewelryManager.Api.Migrations
                     b.Property<int>("EveryMonths")
                         .HasColumnType("integer");
 
+                    b.Property<string>("GroupName")
+                        .HasColumnType("text");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
@@ -855,6 +886,31 @@ namespace JewelryManager.Api.Migrations
                     b.ToTable("Settings", (string)null);
                 });
 
+            modelBuilder.Entity("JewelryManager.Api.Data.Entities.TaskCategory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("BusinessId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BusinessId", "Name")
+                        .IsUnique();
+
+                    b.ToTable("TaskCategories");
+                });
+
             modelBuilder.Entity("JewelryManager.Api.Data.Entities.TaskItem", b =>
                 {
                     b.Property<Guid>("Id")
@@ -863,6 +919,10 @@ namespace JewelryManager.Api.Migrations
 
                     b.Property<Guid>("BusinessId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("Category")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<DateTime?>("CompletedAt")
                         .HasColumnType("timestamp with time zone");
@@ -980,6 +1040,15 @@ namespace JewelryManager.Api.Migrations
                         .WithMany()
                         .HasForeignKey("SeriesId")
                         .OnDelete(DeleteBehavior.SetNull);
+                });
+
+            modelBuilder.Entity("JewelryManager.Api.Data.Entities.ExpenseGroup", b =>
+                {
+                    b.HasOne("JewelryManager.Api.Data.Entities.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("JewelryManager.Api.Data.Entities.ExpenseSupplier", b =>
@@ -1176,6 +1245,15 @@ namespace JewelryManager.Api.Migrations
                         .IsRequired();
 
                     b.Navigation("Business");
+                });
+
+            modelBuilder.Entity("JewelryManager.Api.Data.Entities.TaskCategory", b =>
+                {
+                    b.HasOne("JewelryManager.Api.Data.Entities.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("JewelryManager.Api.Data.Entities.TaskItem", b =>

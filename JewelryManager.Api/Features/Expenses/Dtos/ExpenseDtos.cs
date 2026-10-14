@@ -18,7 +18,9 @@ public record CreateExpenseDto(
     // The order this expense was made for (optional).
     Guid? OrderId = null,
     [MaxLength(100)] string? Supplier = null,
-    [MaxLength(1000)] string? Notes = null);
+    [MaxLength(1000)] string? Notes = null,
+    // One of the names from her expense groups list.
+    [MaxLength(100)] string? GroupName = null);
 
 /// <summary>Body of PUT /expenses/{id}. ApplyToSeries also changes the series template and its later occurrences.</summary>
 public record UpdateExpenseDto(
@@ -30,7 +32,8 @@ public record UpdateExpenseDto(
     [MaxLength(100)] string? TypeName = null,
     Guid? OrderId = null,
     [MaxLength(100)] string? Supplier = null,
-    [MaxLength(1000)] string? Notes = null);
+    [MaxLength(1000)] string? Notes = null,
+    [MaxLength(100)] string? GroupName = null);
 
 /// <summary>What a delete of a recurring expense removes.</summary>
 public enum ExpenseDeleteScope
@@ -59,4 +62,5 @@ public record ExpenseResponse(
     int? OrderNumber,
     string? InvoiceFileName,
     string? Supplier,
-    string? Notes);
+    string? Notes,
+    string? GroupName);

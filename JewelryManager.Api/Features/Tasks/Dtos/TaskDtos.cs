@@ -8,7 +8,8 @@ public record SaveTaskDto(
     [Required, MaxLength(200)] string Title,
     [MaxLength(4_000)] string? Content,
     WorkTaskStatus Status,
-    Guid? OrderId);
+    Guid? OrderId,
+    [MaxLength(100)] string? Category = null);
 
 public record UpdateTaskStatusDto(WorkTaskStatus Status);
 
@@ -25,4 +26,5 @@ public record TaskResponse(
     // Created by the system for a new order.
     bool IsAutomatic,
     // The status of the linked order. For an automatic task this is the status to show: the order is the source.
-    OrderStatus? OrderStatus);
+    OrderStatus? OrderStatus,
+    string? Category);

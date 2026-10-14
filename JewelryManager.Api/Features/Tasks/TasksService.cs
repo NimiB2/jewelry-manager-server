@@ -19,10 +19,9 @@ public class TasksService(AppDbContext db, CurrentUserAccessor tenant)
         var tasks = await query.ToListAsync();
         var orders = await LoadOrdersAsync(businessId, tasks);
 
-        // Open work first (in progress, then new), finished tasks last; newest first inside each group.
+        // Open work first, finished tasks last; the newest on top so a task just added is never buried.
         return tasks
             .OrderBy(t => t.Status == WorkTaskStatus.Completed ? 1 : 0)
-            .ThenBy(t => t.Status == WorkTaskStatus.InProgress ? 0 : 1)
             .ThenByDescending(t => t.CreatedAt)
             .Select(t => ToResponse(t, orders))
             .ToList();
@@ -103,6 +102,7 @@ public class TasksService(AppDbContext db, CurrentUserAccessor tenant)
         task.Title = title;
         task.Content = string.IsNullOrWhiteSpace(dto.Content) ? null : dto.Content.Trim();
         task.OrderId = dto.OrderId;
+        task.Category = string.IsNullOrWhiteSpace(dto.Category) ? null : dto.Category.Trim();
         SetStatus(task, dto.Status, now);
     }
 
@@ -136,6 +136,6 @@ public class TasksService(AppDbContext db, CurrentUserAccessor tenant)
     {
         Order? order = t.OrderId is { } id && orders.TryGetValue(id, out var found) ? found : null;
         return new TaskResponse(
-            t.Id, t.Title, t.Content, t.Status, t.OrderId, order?.Number, order?.Customer, t.CreatedAt, t.CompletedAt, t.IsAutomatic, order?.Status);
+            t.Id, t.Title, t.Content, t.Status, t.OrderId, order?.Number, order?.Customer, t.CreatedAt, t.CompletedAt, t.IsAutomatic, order?.Status, t.Category);
     }
 }

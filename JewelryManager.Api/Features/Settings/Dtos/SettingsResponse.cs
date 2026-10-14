@@ -12,6 +12,8 @@ public record SettingsDataResponse(
     List<decimal> DiscountPresets,
     string TestOrderPrefix,
     List<string> ExpenseTypes,
-    List<string> ExpenseSuppliers);
+    List<string> ExpenseSuppliers,
+    List<string> ExpenseGroups,
+    List<string> TaskCategories);
 
 public record SettingsResponse(Guid Id, Guid BusinessId, SettingsDataResponse Data, DateTime UpdatedAt);

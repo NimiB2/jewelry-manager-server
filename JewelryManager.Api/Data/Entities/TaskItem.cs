@@ -13,6 +13,9 @@ public class TaskItem
     // Optional: a task can stand alone or hang on an order.
     public Guid? OrderId { get; set; }
 
+    // One of the names from her task categories list (optional).
+    public string? Category { get; set; }
+
     // Created and kept in step by the system when an order is added (it follows the order's status and goes with it).
     public bool IsAutomatic { get; set; }
 

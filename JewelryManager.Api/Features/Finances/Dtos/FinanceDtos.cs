@@ -30,7 +30,9 @@ public record FinanceItem(
     // A coming occurrence of a recurring expense that does not exist yet. Id is the latest real occurrence of its series.
     bool IsProjected = false,
     string? Supplier = null,
-    string? Notes = null);
+    string? Notes = null,
+    // The main group of an expense (orders, business, home...).
+    string? GroupName = null);
 
 /// <summary>Totals for the whole period, regardless of the list filters.</summary>
 public record FinanceSummary(decimal TotalIncome, decimal TotalExpenses, decimal NetProfit, int ExpensesWithoutReceipt);

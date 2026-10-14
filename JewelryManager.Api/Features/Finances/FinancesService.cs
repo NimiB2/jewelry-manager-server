@@ -165,7 +165,7 @@ public class FinancesService(AppDbContext db, CurrentUserAccessor tenant, Expens
         items.AddRange(expenseRows.Select(e => new FinanceItem(
             FinanceKind.Expense, e.Id, e.Date, e.Description, e.Amount, e.Category, null, e.OrderId,
             e.HasReceipt, e.SeriesId, e.SeriesId is { } sid && every.TryGetValue(sid, out var m) ? m : null,
-            e.TypeName, NumberOf(e.OrderId), e.InvoiceStoredName != null, Supplier: e.Supplier, Notes: e.Notes)));
+            e.TypeName, NumberOf(e.OrderId), e.InvoiceStoredName != null, Supplier: e.Supplier, Notes: e.Notes, GroupName: e.GroupName)));
         items.AddRange(incomeRows.Select(i => new FinanceItem(
             FinanceKind.Income, i.Id, i.Date, i.Description, i.Amount, null, i.Category, i.OrderId,
             false, null, null, null, NumberOf(i.OrderId), false)));
@@ -208,7 +208,7 @@ public class FinancesService(AppDbContext db, CurrentUserAccessor tenant, Expens
 
                 items.Add(new FinanceItem(
                     FinanceKind.Expense, latest[s.Id], date, s.Description, s.Amount, s.Category, null, null,
-                    false, s.Id, s.EveryMonths, s.TypeName, null, false, IsProjected: true, Supplier: s.Supplier));
+                    false, s.Id, s.EveryMonths, s.TypeName, null, false, IsProjected: true, Supplier: s.Supplier, GroupName: s.GroupName));
             }
         }
 

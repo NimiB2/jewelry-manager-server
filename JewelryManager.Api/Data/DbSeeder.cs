@@ -56,6 +56,10 @@ public class DbSeeder(AppDbContext db, IConfiguration config)
 
     private static readonly string[] ExpenseTypeNames = ["קניית חומר", "אריזה", "שיווק"];
 
+    private static readonly string[] ExpenseGroupNames = ["הוצאות הזמנות", "הוצאות עסק", "הוצאות בית", "אחר"];
+
+    private static readonly string[] TaskCategoryNames = ["שיווק", "חומרים", "עסק"];
+
     private static readonly string[] Stages = ["יציקה", "שיבוץ אבנים", "ליטוש", "ניקוי"];
 
     public async Task SeedAsync()
@@ -113,6 +117,16 @@ public class DbSeeder(AppDbContext db, IConfiguration config)
                 });
 
             db.ExpenseTypes.AddRange(ExpenseTypeNames.Select((name, i) => new ExpenseType
+            {
+                Id = Guid.NewGuid(), BusinessId = BusinessId, Name = name, SortOrder = i,
+            }));
+
+            db.ExpenseGroups.AddRange(ExpenseGroupNames.Select((name, i) => new ExpenseGroup
+            {
+                Id = Guid.NewGuid(), BusinessId = BusinessId, Name = name, SortOrder = i,
+            }));
+
+            db.TaskCategories.AddRange(TaskCategoryNames.Select((name, i) => new TaskCategory
             {
                 Id = Guid.NewGuid(), BusinessId = BusinessId, Name = name, SortOrder = i,
             }));

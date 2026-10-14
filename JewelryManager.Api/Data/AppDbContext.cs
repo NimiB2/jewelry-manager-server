@@ -33,6 +33,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<TaskItem> Tasks => Set<TaskItem>();
     public DbSet<ExpenseType> ExpenseTypes => Set<ExpenseType>();
     public DbSet<ExpenseSupplier> ExpenseSuppliers => Set<ExpenseSupplier>();
+    public DbSet<ExpenseGroup> ExpenseGroups => Set<ExpenseGroup>();
+    public DbSet<TaskCategory> TaskCategories => Set<TaskCategory>();
 
     // More DbSets will be added here as features are built.
 
@@ -257,10 +259,25 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasOne<Business>().WithMany().HasForeignKey(s => s.BusinessId).OnDelete(DeleteBehavior.Cascade);
         });
 
+        b.Entity<ExpenseGroup>(e =>
+        {
+            e.HasIndex(g => new { g.BusinessId, g.Name }).IsUnique();
+            e.Property(g => g.Name).HasMaxLength(100);
+            e.HasOne<Business>().WithMany().HasForeignKey(g => g.BusinessId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<TaskCategory>(e =>
+        {
+            e.HasIndex(c => new { c.BusinessId, c.Name }).IsUnique();
+            e.Property(c => c.Name).HasMaxLength(100);
+            e.HasOne<Business>().WithMany().HasForeignKey(c => c.BusinessId).OnDelete(DeleteBehavior.Cascade);
+        });
+
         // ── Tasks ─────────────────────────────────────────────────────────────
         b.Entity<TaskItem>(e =>
         {
             e.ToTable("Tasks");
+            e.Property(t => t.Category).HasMaxLength(100);
             e.HasIndex(t => new { t.BusinessId, t.Status });
             e.HasIndex(t => t.OrderId);
             e.Property(t => t.Title).HasMaxLength(200);

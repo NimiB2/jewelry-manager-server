@@ -14,6 +14,7 @@ public class RecurringExpense
     public decimal Amount { get; set; }
     public string? TypeName { get; set; }
     public string? Supplier { get; set; }
+    public string? GroupName { get; set; }
 
     public int EveryMonths { get; set; }
 

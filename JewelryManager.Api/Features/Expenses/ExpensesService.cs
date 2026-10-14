@@ -65,6 +65,7 @@ public class ExpensesService(AppDbContext db, CurrentUserAccessor tenant, IInvoi
             Id = Guid.NewGuid(), BusinessId = businessId, Date = dto.Date, Category = dto.Category,
             Description = description, Amount = Math.Round(dto.Amount, 2),
             TypeName = typeName, Supplier = supplier, Notes = CleanTypeName(dto.Notes), OrderId = dto.OrderId, CreatedAt = now, UpdatedAt = now,
+            GroupName = CleanTypeName(dto.GroupName),
         };
 
         if (dto.RepeatEveryMonths is { } every)
@@ -73,7 +74,7 @@ public class ExpensesService(AppDbContext db, CurrentUserAccessor tenant, IInvoi
             var series = new RecurringExpense
             {
                 Id = Guid.NewGuid(), BusinessId = businessId, Category = dto.Category, Description = description,
-                TypeName = typeName, Supplier = supplier, Amount = expense.Amount, EveryMonths = every, DayOfMonth = dto.Date.Day,
+                TypeName = typeName, Supplier = supplier, GroupName = expense.GroupName, Amount = expense.Amount, EveryMonths = every, DayOfMonth = dto.Date.Day,
                 NextDate = AddMonthsKeepingDay(dto.Date, every, dto.Date.Day), CreatedAt = now,
             };
             db.RecurringExpenses.Add(series);
@@ -114,6 +115,7 @@ public class ExpensesService(AppDbContext db, CurrentUserAccessor tenant, IInvoi
             series.Description = description;
             series.TypeName = typeName;
             series.Supplier = supplier;
+            series.GroupName = CleanTypeName(dto.GroupName);
             series.Amount = amount;
 
             var later = await db.Expenses
@@ -125,6 +127,7 @@ public class ExpensesService(AppDbContext db, CurrentUserAccessor tenant, IInvoi
                 e.Description = description;
                 e.TypeName = typeName;
                 e.Supplier = supplier;
+                e.GroupName = CleanTypeName(dto.GroupName);
                 e.Amount = amount;
                 e.UpdatedAt = now;
             }
@@ -135,6 +138,7 @@ public class ExpensesService(AppDbContext db, CurrentUserAccessor tenant, IInvoi
         expense.Description = description;
         expense.TypeName = typeName;
         expense.Supplier = supplier;
+        expense.GroupName = CleanTypeName(dto.GroupName);
         expense.Notes = CleanTypeName(dto.Notes);
         expense.OrderId = dto.OrderId;
         expense.Amount = amount;
@@ -209,7 +213,7 @@ public class ExpensesService(AppDbContext db, CurrentUserAccessor tenant, IInvoi
                 db.Expenses.Add(new Expense
                 {
                     Id = Guid.NewGuid(), BusinessId = businessId, Date = series.NextDate, Category = series.Category,
-                    Description = series.Description, Amount = series.Amount, TypeName = series.TypeName, Supplier = series.Supplier, SeriesId = series.Id,
+                    Description = series.Description, Amount = series.Amount, TypeName = series.TypeName, Supplier = series.Supplier, GroupName = series.GroupName, SeriesId = series.Id,
                     CreatedAt = now, UpdatedAt = now,
                 });
                 series.NextDate = AddMonthsKeepingDay(series.NextDate, series.EveryMonths, series.DayOfMonth);
@@ -274,6 +278,6 @@ public class ExpensesService(AppDbContext db, CurrentUserAccessor tenant, IInvoi
 
         return new ExpenseResponse(
             e.Id, e.Date, e.Category, e.Description, e.Amount, e.HasReceipt, e.SeriesId, every,
-            e.TypeName, e.OrderId, orderNumber, e.InvoiceFileName, e.Supplier, e.Notes);
+            e.TypeName, e.OrderId, orderNumber, e.InvoiceFileName, e.Supplier, e.Notes, e.GroupName);
     }
 }

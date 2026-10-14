@@ -14,6 +14,9 @@ public class Expense
     // The expense type picked from her settings list (materials, packaging...). Stored by name, like the preparation stages.
     public string? TypeName { get; set; }
 
+    // The main group picked from her settings list (orders, business, home...). Stored by name too.
+    public string? GroupName { get; set; }
+
     // Who it was bought from (optional, free text).
     public string? Supplier { get; set; }
 

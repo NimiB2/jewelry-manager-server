@@ -63,6 +63,18 @@ public class SettingsService(AppDbContext db, CurrentUserAccessor tenant)
             .Select(s => s.Name)
             .ToListAsync();
 
+        var expenseGroups = await db.ExpenseGroups.AsNoTracking()
+            .Where(g => g.BusinessId == businessId)
+            .OrderBy(g => g.SortOrder)
+            .Select(g => g.Name)
+            .ToListAsync();
+
+        var taskCategories = await db.TaskCategories.AsNoTracking()
+            .Where(c => c.BusinessId == businessId)
+            .OrderBy(c => c.SortOrder)
+            .Select(c => c.Name)
+            .ToListAsync();
+
         var data = new SettingsDataResponse(
             Materials: materials.ToDictionary(
                 m => m.Name,
@@ -79,7 +91,9 @@ public class SettingsService(AppDbContext db, CurrentUserAccessor tenant)
             DiscountPresets: discountPresets,
             TestOrderPrefix: settings.TestOrderPrefix,
             ExpenseTypes: expenseTypes,
-            ExpenseSuppliers: expenseSuppliers);
+            ExpenseSuppliers: expenseSuppliers,
+            ExpenseGroups: expenseGroups,
+            TaskCategories: taskCategories);
 
         return new SettingsResponse(settings.Id, settings.BusinessId, data, settings.UpdatedAt);
     }
@@ -187,6 +201,24 @@ public class SettingsService(AppDbContext db, CurrentUserAccessor tenant)
             }));
         }
 
+        if (dto.ExpenseGroups is not null)
+        {
+            await db.ExpenseGroups.Where(g => g.BusinessId == businessId).ExecuteDeleteAsync();
+            db.ExpenseGroups.AddRange(dto.ExpenseGroups.Select((name, i) => new ExpenseGroup
+            {
+                Id = Guid.NewGuid(), BusinessId = businessId, Name = name.Trim(), SortOrder = i,
+            }));
+        }
+
+        if (dto.TaskCategories is not null)
+        {
+            await db.TaskCategories.Where(c => c.BusinessId == businessId).ExecuteDeleteAsync();
+            db.TaskCategories.AddRange(dto.TaskCategories.Select((name, i) => new TaskCategory
+            {
+                Id = Guid.NewGuid(), BusinessId = businessId, Name = name.Trim(), SortOrder = i,
+            }));
+        }
+
         await db.SaveChangesAsync();
         await tx.CommitAsync();
 
@@ -201,6 +233,11 @@ public class SettingsService(AppDbContext db, CurrentUserAccessor tenant)
         if (HasDuplicates(dto.FeesItems?.Select(f => f.Name))) throw new BadRequestException("Fee names must be unique");
         if (HasDuplicates(dto.PreparationStages)) throw new BadRequestException("Preparation stage names must be unique");
         if (HasDuplicates(dto.ExpenseTypes)) throw new BadRequestException("Expense type names must be unique");
+        if (HasDuplicates(dto.ExpenseGroups)) throw new BadRequestException("Expense group names must be unique");
+        if (HasDuplicates(dto.TaskCategories)) throw new BadRequestException("Task category names must be unique");
+        if (dto.ExpenseGroups?.Concat(dto.TaskCategories ?? []).Any(n => string.IsNullOrWhiteSpace(n) || n.Trim().Length > 100) == true
+            || dto.TaskCategories?.Any(n => string.IsNullOrWhiteSpace(n) || n.Trim().Length > 100) == true)
+            throw new BadRequestException("Names must be 1-100 characters");
         if (HasDuplicates(dto.ExpenseSuppliers)) throw new BadRequestException("Supplier names must be unique");
         if (dto.ExpenseSuppliers?.Any(n => string.IsNullOrWhiteSpace(n) || n.Trim().Length > 100) == true)
             throw new BadRequestException("Supplier names must be 1-100 characters");
