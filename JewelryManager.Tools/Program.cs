@@ -12,8 +12,8 @@ using Microsoft.Extensions.Configuration;
 // The connection string comes from JewelryManager.Api/appsettings.Development.json or the
 // ConnectionStrings__Default environment variable. Nothing secret is printed.
 
-if (args.Length < 1 || (args[0] is not ("status" or "relink-orders") && args.Length < 2)
-    || args[0] is not ("status" or "import-products" or "import-orders" or "export-products" or "update-products" or "prepare-review" or "make-single-sheet" or "relink-orders" or "reprice-products" or "read-invoices" or "export-settings" or "import-settings"))
+if (args.Length < 1 || (args[0] is not ("status" or "relink-orders" or "backfill-order-rates") && args.Length < 2)
+    || args[0] is not ("status" or "import-products" or "import-orders" or "export-products" or "update-products" or "prepare-review" or "make-single-sheet" or "relink-orders" or "reprice-products" or "read-invoices" or "export-settings" or "import-settings" or "backfill-order-rates"))
 {
     Console.WriteLine("Usage: status   (what is in the database this tool points at)");
     Console.WriteLine("       import-products <file.json> [--dry-run]");
@@ -26,6 +26,7 @@ if (args.Length < 1 || (args[0] is not ("status" or "relink-orders") && args.Len
     Console.WriteLine("       reprice-products <file.json> [--dry-run]   (rows without a sheet price get the recommended price)");
     Console.WriteLine("       export-settings <file.json>   (saves the settings of this database)");
     Console.WriteLine("       import-settings <file.json> [--dry-run]   (replaces the settings of this database)");
+    Console.WriteLine("       backfill-order-rates [--dry-run]   (gives each order the hourly rate of its time: 80 before 2026, 100 until last month, the current rate this month)");
     Console.WriteLine("       read-invoices <folder> [--provider gemini|openai|claude] [--model <name>] [--key-env <ENV_VAR>] [--types a,b,c]");
     return 1;
 }
@@ -136,6 +137,24 @@ if (args[0] == "import-orders")
     foreach (var skipped in history.Skipped) Console.WriteLine($"SKIPPED  {skipped.Name} — {skipped.Reason}");
     foreach (var line in history.Failed) Console.WriteLine($"FAILED  {line}");
     return history.Failed.Count == 0 ? 0 : 2;
+}
+
+if (args[0] == "backfill-order-rates")
+{
+    var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeBySystemTimeZoneId(DateTime.UtcNow, OperatingSystem.IsWindows() ? "Israel Standard Time" : "Asia/Jerusalem"));
+    var plan = new OrderRatesBackfill.Plan(OldRate: 80, FromYear: 2026, YearRate: 100, CurrentMonthStart: new DateOnly(today.Year, today.Month, 1));
+    var backupFile = Path.Combine("..", "imports", $"order-rates-before-{today:yyyy-MM-dd}.csv");
+    Directory.CreateDirectory(Path.GetDirectoryName(backupFile)!);
+    var filled = await new OrderRatesBackfill(db, business[0].Id).RunAsync(plan, dryRun, backupFile);
+    if (!dryRun) Console.WriteLine($"The old rates were saved to {Path.GetFullPath(backupFile)}");
+
+    Console.WriteLine($"Current rate in the settings: {filled.CurrentRate}  (used for orders from {plan.CurrentMonthStart:yyyy-MM-dd})");
+    foreach (var b in filled.Buckets)
+        Console.WriteLine($"{b.Name}: {b.Orders} orders, {b.Hours:0.#} hours, salary now {OrderRatesBackfill.Money(b.SalaryNow)} -> after {OrderRatesBackfill.Money(b.SalaryAfter)}");
+    foreach (var m in filled.Months)
+        Console.WriteLine($"  {m.Year}-{m.Month:00}: {m.Orders} orders, {m.Hours:0.#} hours, salary {OrderRatesBackfill.Money(m.Salary)}");
+    Console.WriteLine($"{(dryRun ? "Would change" : "Changed")}: {filled.OrdersChanged} orders, {filled.IncomesChanged} incomes   Deleted orders (not counted above): {filled.DeletedOrders}   Orders with no work hours: {filled.WithoutHours}");
+    return 0;
 }
 
 if (args[0] == "export-products")

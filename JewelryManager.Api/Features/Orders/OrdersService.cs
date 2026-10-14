@@ -1040,7 +1040,9 @@ public class OrdersService(AppDbContext db, CurrentUserAccessor tenant)
             o.ExternalName, o.IsPendingApproval, o.StoreAlert, o.StoreAlertAt,
             o.CustomerPhone, CustomerMessageTemplate.WhatsAppNumber(o.CustomerPhone),
             o.Source == OrderSource.Shopify ? CustomerMessageTemplate.Build(o) : null,
-            o.CustomerNotifiedAt);
+            o.CustomerNotifiedAt,
+            o.IsDeleted ? 0 : Math.Round(o.Items.Sum(i => i.WorkHours * i.Quantity) * o.LaborHourRate, 2),
+            o.LaborHourRate);
     }
 
     private record SnapshotSettings(decimal LaborHourRate, string TestPrefix, Dictionary<string, decimal> MaterialHours);

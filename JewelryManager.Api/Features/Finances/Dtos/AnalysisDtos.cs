@@ -13,6 +13,9 @@ public record AnalysisMonth(
 /// <summary>One slice of the expense breakdown (a main group or a category).</summary>
 public record AnalysisSlice(string Name, decimal Amount, decimal Percent, int Count, decimal PreviousAmount);
 
+/// <summary>A category inside one main group, so choosing a group can show only its own categories.</summary>
+public record AnalysisPair(string Group, string Category, decimal Amount, int Count, decimal PreviousAmount);
+
 /// <summary>A product or material ranked by what it brought in.</summary>
 public record AnalysisTopItem(string Name, decimal Revenue, int Quantity);
 
@@ -35,5 +38,6 @@ public record FinanceAnalysisResponse(
     AnalysisTotals Totals,
     List<AnalysisSlice> ByGroup,
     List<AnalysisSlice> ByCategory,
+    List<AnalysisPair> ByGroupCategory,
     List<AnalysisTopItem> TopProducts,
     List<AnalysisTopItem> TopMaterials);

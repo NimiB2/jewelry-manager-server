@@ -82,6 +82,7 @@ public class FinanceAnalysisService(AppDbContext db, CurrentUserAccessor tenant)
             year, month, months, totals,
             Slices(periodExpenses, previousExpenses, e => e.GroupName, NoGroup),
             Slices(periodExpenses, previousExpenses, e => e.TypeName, NoCategory),
+            Pairs(periodExpenses, previousExpenses),
             topProducts, topMaterials);
     }
 
@@ -106,6 +107,19 @@ public class FinanceAnalysisService(AppDbContext db, CurrentUserAccessor tenant)
                     before.GetValueOrDefault(g.Key));
             })
             .OrderByDescending(s => s.Amount)
+            .ToList();
+    }
+
+    private static List<AnalysisPair> Pairs(List<Expense> current, List<Expense> previous)
+    {
+        static string Group(Expense e) => string.IsNullOrWhiteSpace(e.GroupName) ? NoGroup : e.GroupName.Trim();
+        static string Category(Expense e) => string.IsNullOrWhiteSpace(e.TypeName) ? NoCategory : e.TypeName.Trim();
+
+        var before = previous.GroupBy(e => (Group(e), Category(e))).ToDictionary(g => g.Key, g => g.Sum(e => e.Amount));
+
+        return current.GroupBy(e => (Group: Group(e), Category: Category(e)))
+            .Select(g => new AnalysisPair(g.Key.Group, g.Key.Category, g.Sum(e => e.Amount), g.Count(), before.GetValueOrDefault(g.Key)))
+            .OrderByDescending(p => p.Amount)
             .ToList();
     }
 

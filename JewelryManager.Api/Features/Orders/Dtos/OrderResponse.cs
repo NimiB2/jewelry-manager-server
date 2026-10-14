@@ -49,7 +49,10 @@ public record OrderResponse(
     string? CustomerPhone = null,
     string? CustomerWhatsApp = null,
     string? CustomerMessage = null,
-    DateTime? CustomerNotifiedAt = null);
+    DateTime? CustomerNotifiedAt = null,
+    // What the work hours of this order are worth: hours x the hourly rate frozen on the order (0 when deleted).
+    decimal Salary = 0,
+    decimal LaborHourRate = 0);
 
 /// <summary>
 /// What needs the owner's attention: orders waiting for approval, orders the store changed, and store
