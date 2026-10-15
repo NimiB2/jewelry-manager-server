@@ -304,7 +304,7 @@ public class PersistenceTests(PostgresFixture pg)
         Assert.Equal(["אבן", "שיבוץ", "ציפוי", "תוספת עגילים", "תוספת שרשרת", "אחר"], read.ProductAdditionTypes.Select(t => t.Name));
         Assert.True(read.ProductAdditionTypes.Single(t => t.Name == "אחר").AllowsCustomName);
         Assert.Equal(FeeKeys.Required.Order(), read.FeesItems.Select(f => f.Key!).Order());
-        Assert.Equal(330, read.Materials["14K זהב"].PricePerGram);
+        Assert.Equal(330, read.Materials["זהב 14"].PricePerGram);
         Assert.Equal(8, read.PricingAdditions.Single(c => c.Name == "אריזה").Items.Count);
 
         await using var check = pg.NewDb();

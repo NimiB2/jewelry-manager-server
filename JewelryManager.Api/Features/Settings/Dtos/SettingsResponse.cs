@@ -14,6 +14,7 @@ public record SettingsDataResponse(
     List<string> ExpenseTypes,
     List<string> ExpenseSuppliers,
     List<string> ExpenseGroups,
-    List<string> TaskCategories);
+    List<string> TaskCategories,
+    Dictionary<string, string> ExpenseTypeGroups);
 
 public record SettingsResponse(Guid Id, Guid BusinessId, SettingsDataResponse Data, DateTime UpdatedAt);

@@ -51,5 +51,7 @@ public record UpdateSettingsDto(
     // The main groups expenses are sorted into (orders, business, home...).
     List<string>? ExpenseGroups = null,
     // The categories general tasks are sorted into.
-    List<string>? TaskCategories = null
+    List<string>? TaskCategories = null,
+    // The default group of each expense type, by type name. A type missing here has no group.
+    Dictionary<string, string>? ExpenseTypeGroups = null
 );

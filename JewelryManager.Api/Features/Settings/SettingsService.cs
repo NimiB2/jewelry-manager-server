@@ -51,11 +51,15 @@ public class SettingsService(AppDbContext db, CurrentUserAccessor tenant)
             .Select(d => d.Percent)
             .ToListAsync();
 
-        var expenseTypes = await db.ExpenseTypes.AsNoTracking()
+        var expenseTypeRows = await db.ExpenseTypes.AsNoTracking()
             .Where(t => t.BusinessId == businessId)
             .OrderBy(t => t.SortOrder)
-            .Select(t => t.Name)
+            .Select(t => new { t.Name, t.GroupName })
             .ToListAsync();
+        var expenseTypes = expenseTypeRows.Select(t => t.Name).ToList();
+        var expenseTypeGroups = expenseTypeRows
+            .Where(t => !string.IsNullOrWhiteSpace(t.GroupName))
+            .ToDictionary(t => t.Name, t => t.GroupName!);
 
         var expenseSuppliers = await db.ExpenseSuppliers.AsNoTracking()
             .Where(s => s.BusinessId == businessId)
@@ -93,7 +97,8 @@ public class SettingsService(AppDbContext db, CurrentUserAccessor tenant)
             ExpenseTypes: expenseTypes,
             ExpenseSuppliers: expenseSuppliers,
             ExpenseGroups: expenseGroups,
-            TaskCategories: taskCategories);
+            TaskCategories: taskCategories,
+            ExpenseTypeGroups: expenseTypeGroups);
 
         return new SettingsResponse(settings.Id, settings.BusinessId, data, settings.UpdatedAt);
     }
@@ -183,12 +188,23 @@ public class SettingsService(AppDbContext db, CurrentUserAccessor tenant)
             }));
         }
 
-        if (dto.ExpenseTypes is not null)
+        if (dto.ExpenseTypes is not null || dto.ExpenseTypeGroups is not null)
         {
+            // The list and the groups are saved by different sections, so whichever was not sent keeps its stored value.
+            var stored = await db.ExpenseTypes.AsNoTracking()
+                .Where(t => t.BusinessId == businessId)
+                .OrderBy(t => t.SortOrder)
+                .Select(t => new { t.Name, t.GroupName })
+                .ToListAsync();
+            var names = dto.ExpenseTypes?.Select(n => n.Trim()).ToList() ?? stored.Select(t => t.Name).ToList();
+            var groups = dto.ExpenseTypeGroups
+                ?? stored.Where(t => t.GroupName is not null).ToDictionary(t => t.Name, t => t.GroupName!);
+
             await db.ExpenseTypes.Where(t => t.BusinessId == businessId).ExecuteDeleteAsync();
-            db.ExpenseTypes.AddRange(dto.ExpenseTypes.Select((name, i) => new ExpenseType
+            db.ExpenseTypes.AddRange(names.Select((name, i) => new ExpenseType
             {
-                Id = Guid.NewGuid(), BusinessId = businessId, Name = name.Trim(), SortOrder = i,
+                Id = Guid.NewGuid(), BusinessId = businessId, Name = name, SortOrder = i,
+                GroupName = groups.TryGetValue(name, out var group) && !string.IsNullOrWhiteSpace(group) ? group.Trim() : null,
             }));
         }
 
@@ -245,6 +261,8 @@ public class SettingsService(AppDbContext db, CurrentUserAccessor tenant)
             throw new BadRequestException("Expense type names must be 1-100 characters");
         if (HasDuplicates(dto.ProductAdditionTypes?.Select(t => t.Name)))
             throw new BadRequestException("Addition names must be unique");
+        if (dto.ExpenseTypeGroups?.Any(g => g.Key.Trim().Length > 100 || g.Value.Trim().Length > 100) == true)
+            throw new BadRequestException("Names must be 1-100 characters");
         RejectInvalidFeeKeys(dto.FeesItems);
         if (dto.DiscountPresets?.Any(p => p <= 0 || p > 100) == true)
             throw new BadRequestException("Discount percentages must be between 0.01 and 100");

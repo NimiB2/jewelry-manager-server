@@ -43,6 +43,14 @@ public class FinanceAnalysisService(AppDbContext db, CurrentUserAccessor tenant)
             .Where(e => e.BusinessId == businessId && e.Date >= earliest && e.Date <= yearEnd)
             .ToListAsync();
 
+        // An expense without its own group takes the default group of its category.
+        var typeGroups = await db.ExpenseTypes.AsNoTracking()
+            .Where(t => t.BusinessId == businessId && t.GroupName != null)
+            .ToDictionaryAsync(t => t.Name, t => t.GroupName!);
+        string? GroupOf(Expense e) =>
+            !string.IsNullOrWhiteSpace(e.GroupName) ? e.GroupName
+            : e.TypeName is not null && typeGroups.TryGetValue(e.TypeName, out var g) ? g : null;
+
         decimal Salary(Income i) => (i.WorkHours ?? 0) * (i.LaborHourRate ?? fallbackRate);
 
         var months = Enumerable.Range(1, 12).Select(mo =>
@@ -80,9 +88,9 @@ public class FinanceAnalysisService(AppDbContext db, CurrentUserAccessor tenant)
 
         return new FinanceAnalysisResponse(
             year, month, months, totals,
-            Slices(periodExpenses, previousExpenses, e => e.GroupName, NoGroup),
+            Slices(periodExpenses, previousExpenses, GroupOf, NoGroup),
             Slices(periodExpenses, previousExpenses, e => e.TypeName, NoCategory),
-            Pairs(periodExpenses, previousExpenses),
+            Pairs(periodExpenses, previousExpenses, GroupOf),
             topProducts, topMaterials);
     }
 
@@ -110,9 +118,9 @@ public class FinanceAnalysisService(AppDbContext db, CurrentUserAccessor tenant)
             .ToList();
     }
 
-    private static List<AnalysisPair> Pairs(List<Expense> current, List<Expense> previous)
+    private static List<AnalysisPair> Pairs(List<Expense> current, List<Expense> previous, Func<Expense, string?> groupOf)
     {
-        static string Group(Expense e) => string.IsNullOrWhiteSpace(e.GroupName) ? NoGroup : e.GroupName.Trim();
+        string Group(Expense e) => string.IsNullOrWhiteSpace(groupOf(e)) ? NoGroup : groupOf(e)!.Trim();
         static string Category(Expense e) => string.IsNullOrWhiteSpace(e.TypeName) ? NoCategory : e.TypeName.Trim();
 
         var before = previous.GroupBy(e => (Group(e), Category(e))).ToDictionary(g => g.Key, g => g.Sum(e => e.Amount));

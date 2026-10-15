@@ -21,22 +21,93 @@ public class ExpensesService(AppDbContext db, CurrentUserAccessor tenant, IInvoi
             .ToListAsync();
     }
 
-    // A supplier typed by hand joins her list in front of the others, ready for the next expense.
-    private async Task EnsureSupplierListedAsync(string? supplier)
+    /// <summary>For each supplier, the expense type it was most often recorded under.</summary>
+    public async Task<Dictionary<string, string>> GetSupplierTypesAsync()
     {
-        if (supplier is null) return;
+        var businessId = tenant.GetBusinessId();
+        var rows = await db.Expenses.AsNoTracking()
+            .Where(e => e.BusinessId == businessId && e.Supplier != null && e.TypeName != null)
+            .GroupBy(e => new { e.Supplier, e.TypeName })
+            .Select(g => new { g.Key.Supplier, g.Key.TypeName, Count = g.Count() })
+            .ToListAsync();
+
+        return rows
+            .GroupBy(r => r.Supplier!)
+            .ToDictionary(g => g.Key, g => g.OrderByDescending(r => r.Count).First().TypeName!);
+    }
+
+    /// <summary>Moves every expense of the given suppliers to the target and drops the old names from her list.</summary>
+    public async Task MergeSuppliersAsync(MergeSuppliersDto dto)
+    {
+        var businessId = tenant.GetBusinessId();
+        var target = dto.Target.Trim();
+        var sources = dto.Names.Select(n => n.Trim()).Where(n => n.Length > 0 && n != target).Distinct().ToList();
+        if (target.Length == 0 || sources.Count == 0) throw new BadRequestException("Choose a target and at least one other supplier");
+
+        await using var tx = await db.Database.BeginTransactionAsync();
+
+        await db.Expenses
+            .Where(e => e.BusinessId == businessId && e.Supplier != null && sources.Contains(e.Supplier))
+            .ExecuteUpdateAsync(s => s.SetProperty(e => e.Supplier, target));
+        await db.RecurringExpenses
+            .Where(r => r.BusinessId == businessId && r.Supplier != null && sources.Contains(r.Supplier))
+            .ExecuteUpdateAsync(s => s.SetProperty(r => r.Supplier, target));
+        await db.ExpenseSuppliers
+            .Where(s => s.BusinessId == businessId && sources.Contains(s.Name))
+            .ExecuteDeleteAsync();
+
+        await EnsureListedAsync(target);
+        await db.SaveChangesAsync();
+        await tx.CommitAsync();
+        db.ChangeTracker.Clear();
+    }
+
+    // The same supplier is written differently on different invoices ("X Ltd", "X"), so a name that
+    // matches a listed one once spacing, punctuation and company suffixes are ignored takes the listed name.
+    private static readonly HashSet<string> CompanySuffixes = ["בע\"מ", "בע״מ", "בע'מ", "בעמ", "ltd", "inc", "llc"];
+
+    public static string SupplierKey(string name)
+    {
+        var words = name.ToLowerInvariant()
+            .Split([' ', '\t'], StringSplitOptions.RemoveEmptyEntries)
+            .Where(w => !CompanySuffixes.Contains(w.Trim('.', ',')));
+        return new string(string.Concat(words).Where(char.IsLetterOrDigit).ToArray());
+    }
+
+    // A supplier typed by hand joins her list in front of the others, ready for the next expense.
+    // Returns the name to store: an already listed spelling of the same supplier wins over the new one.
+    private async Task<string?> ResolveSupplierAsync(string? supplier)
+    {
+        if (supplier is null) return null;
 
         var businessId = tenant.GetBusinessId();
         var existing = await db.ExpenseSuppliers.AsNoTracking()
             .Where(s => s.BusinessId == businessId)
             .Select(s => new { s.Name, s.SortOrder })
             .ToListAsync();
-        if (existing.Any(s => string.Equals(s.Name, supplier, StringComparison.OrdinalIgnoreCase))) return;
+
+        var key = SupplierKey(supplier);
+        var match = existing.FirstOrDefault(s => string.Equals(s.Name, supplier, StringComparison.OrdinalIgnoreCase))
+            ?? (key.Length > 0 ? existing.FirstOrDefault(s => SupplierKey(s.Name) == key) : null);
+        if (match is not null) return match.Name;
+
+        await EnsureListedAsync(supplier);
+        return supplier;
+    }
+
+    private async Task EnsureListedAsync(string supplier)
+    {
+        var businessId = tenant.GetBusinessId();
+        var orders = await db.ExpenseSuppliers.AsNoTracking()
+            .Where(s => s.BusinessId == businessId)
+            .Select(s => new { s.Name, s.SortOrder })
+            .ToListAsync();
+        if (orders.Any(s => s.Name == supplier)) return;
 
         db.ExpenseSuppliers.Add(new ExpenseSupplier
         {
             Id = Guid.NewGuid(), BusinessId = businessId, Name = supplier,
-            SortOrder = existing.Count == 0 ? 0 : existing.Min(s => s.SortOrder) - 1,
+            SortOrder = orders.Count == 0 ? 0 : orders.Min(s => s.SortOrder) - 1,
         });
     }
 
@@ -52,8 +123,7 @@ public class ExpensesService(AppDbContext db, CurrentUserAccessor tenant, IInvoi
         var now = DateTime.UtcNow;
         var description = CleanDescription(dto.Description);
         var typeName = CleanTypeName(dto.TypeName);
-        var supplier = CleanTypeName(dto.Supplier);
-        await EnsureSupplierListedAsync(supplier);
+        var supplier = await ResolveSupplierAsync(CleanTypeName(dto.Supplier));
 
         // An order link belongs to one expense; a recurring series repeats the money, not the order.
         if (dto.RepeatEveryMonths is not null && dto.OrderId is not null)
@@ -94,8 +164,7 @@ public class ExpensesService(AppDbContext db, CurrentUserAccessor tenant, IInvoi
         var expense = await FindOrThrowAsync(id, asNoTracking: false);
         var description = CleanDescription(dto.Description);
         var typeName = CleanTypeName(dto.TypeName);
-        var supplier = CleanTypeName(dto.Supplier);
-        await EnsureSupplierListedAsync(supplier);
+        var supplier = await ResolveSupplierAsync(CleanTypeName(dto.Supplier));
         var amount = Math.Round(dto.Amount, 2);
         var now = DateTime.UtcNow;
 

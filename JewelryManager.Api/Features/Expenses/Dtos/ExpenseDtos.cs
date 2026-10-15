@@ -35,6 +35,11 @@ public record UpdateExpenseDto(
     [MaxLength(1000)] string? Notes = null,
     [MaxLength(100)] string? GroupName = null);
 
+/// <summary>Body of POST /expenses/suppliers/merge: every supplier in Names becomes Target.</summary>
+public record MergeSuppliersDto(
+    [Required, MaxLength(100)] string Target,
+    [Required] List<string> Names);
+
 /// <summary>What a delete of a recurring expense removes.</summary>
 public enum ExpenseDeleteScope
 {

@@ -9,4 +9,7 @@ public class ExpenseType
     public string Name { get; set; } = string.Empty;
 
     public int SortOrder { get; set; }
+
+    // The expense group this category belongs to by default (orders, business, home...).
+    public string? GroupName { get; set; }
 }

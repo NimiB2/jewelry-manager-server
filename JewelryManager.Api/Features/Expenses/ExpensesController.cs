@@ -10,6 +10,16 @@ public class ExpensesController(ExpensesService service) : ControllerBase
     [HttpGet("suppliers")]
     public Task<List<string>> GetSuppliers() => service.GetSuppliersAsync();
 
+    [HttpGet("supplier-types")]
+    public Task<Dictionary<string, string>> GetSupplierTypes() => service.GetSupplierTypesAsync();
+
+    [HttpPost("suppliers/merge")]
+    public async Task<IActionResult> MergeSuppliers(MergeSuppliersDto dto)
+    {
+        await service.MergeSuppliersAsync(dto);
+        return NoContent();
+    }
+
     [HttpGet("{id:guid}")]
     public Task<ExpenseResponse> GetExpense(Guid id) => service.GetExpenseAsync(id);
 
