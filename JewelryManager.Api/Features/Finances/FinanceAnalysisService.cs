@@ -34,11 +34,18 @@ public class FinanceAnalysisService(AppDbContext db, CurrentUserAccessor tenant)
             ? Period(m == 1 ? year - 1 : year, m == 1 ? 12 : m - 1)
             : Period(year - 1, null);
 
+        // The trend chart shows the six months ending with the chosen month (or the latest month of a whole year).
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var trendEndMonth = month ?? (year == today.Year ? today.Month : 12);
+        var trendEnd = new DateOnly(year, trendEndMonth, 1);
+        var trendStart = trendEnd.AddMonths(-5);
+
+        var earliest = new[] { prevFrom, yearStart, trendStart }.Min();
+
         var incomes = await db.Incomes.AsNoTracking()
-            .Where(i => i.BusinessId == businessId && i.Date >= yearStart && i.Date <= yearEnd)
+            .Where(i => i.BusinessId == businessId && i.Date >= earliest && i.Date <= yearEnd)
             .ToListAsync();
 
-        var earliest = prevFrom < yearStart ? prevFrom : yearStart;
         var expenses = await db.Expenses.AsNoTracking()
             .Where(e => e.BusinessId == businessId && e.Date >= earliest && e.Date <= yearEnd)
             .ToListAsync();
@@ -55,7 +62,7 @@ public class FinanceAnalysisService(AppDbContext db, CurrentUserAccessor tenant)
 
         var months = Enumerable.Range(1, 12).Select(mo =>
         {
-            var inc = incomes.Where(i => i.Date.Month == mo).ToList();
+            var inc = incomes.Where(i => i.Date.Year == year && i.Date.Month == mo).ToList();
             var spent = expenses.Where(e => e.Date.Year == year && e.Date.Month == mo).Sum(e => e.Amount);
             return new AnalysisMonth(
                 mo,
@@ -82,16 +89,72 @@ public class FinanceAnalysisService(AppDbContext db, CurrentUserAccessor tenant)
             orderIncomes.Count == 0 ? 0 : Math.Round(orderIncomes.Sum(i => i.Amount) / orderIncomes.Count, 2),
             hours > 0 ? Math.Round(orderIncomes.Sum(i => i.Amount) / hours, 2) : null,
             periodExpenses.Where(e => e.Category == ExpenseCategory.Fixed).Sum(e => e.Amount),
-            periodExpenses.Where(e => e.Category != ExpenseCategory.Fixed).Sum(e => e.Amount));
+            periodExpenses.Where(e => e.Category != ExpenseCategory.Fixed).Sum(e => e.Amount),
+            periodExpenses.Where(e => KindOf(GroupOf(e)) == GroupKind.Orders).Sum(e => e.Amount),
+            periodExpenses.Where(e => KindOf(GroupOf(e)) == GroupKind.Home).Sum(e => e.Amount),
+            periodExpenses.Where(e => KindOf(GroupOf(e)) == GroupKind.Business).Sum(e => e.Amount));
 
         var (topProducts, topMaterials) = await TopSellersAsync(businessId, orderIncomes.Select(i => i.OrderId!.Value).ToList());
+
+        var previous = new AnalysisPrevious(
+            incomes.Where(i => i.Date >= prevFrom && i.Date <= prevTo).Sum(i => i.Amount),
+            previousExpenses.Sum(e => e.Amount));
+
+        var trend = Enumerable.Range(0, 6).Select(n =>
+        {
+            var start = trendStart.AddMonths(n);
+            var end = new DateOnly(start.Year, start.Month, DateTime.DaysInMonth(start.Year, start.Month));
+            return new AnalysisTrendPoint(
+                start.Year, start.Month,
+                incomes.Where(i => i.Date >= start && i.Date <= end).Sum(i => i.Amount),
+                expenses.Where(e => e.Date >= start && e.Date <= end).Sum(e => e.Amount));
+        }).ToList();
+
+        var orderSalaries = await OrderSalariesAsync(businessId, orderIncomes, fallbackRate);
 
         return new FinanceAnalysisResponse(
             year, month, months, totals,
             Slices(periodExpenses, previousExpenses, GroupOf, NoGroup),
             Slices(periodExpenses, previousExpenses, e => e.TypeName, NoCategory),
             Pairs(periodExpenses, previousExpenses, GroupOf),
-            topProducts, topMaterials);
+            topProducts, topMaterials, previous, trend, orderSalaries);
+    }
+
+    private enum GroupKind { Orders, Home, Business }
+
+    // The orders and home groups are told apart by name, as the expense form does. Everything else
+    // (business, stock, other, no group yet) counts as a cost of the business.
+    private static GroupKind KindOf(string? group)
+    {
+        if (string.IsNullOrWhiteSpace(group)) return GroupKind.Business;
+        if (group.Contains("הזמנות")) return GroupKind.Orders;
+        if (group.Contains("בית")) return GroupKind.Home;
+        return GroupKind.Business;
+    }
+
+    // The biggest earners first; a year can hold hundreds of orders, so the list is capped.
+    private async Task<List<AnalysisOrderSalary>> OrderSalariesAsync(Guid businessId, List<Income> orderIncomes, decimal fallbackRate)
+    {
+        var withHours = orderIncomes.Where(i => (i.WorkHours ?? 0) > 0).ToList();
+        if (withHours.Count == 0) return [];
+
+        var ids = withHours.Select(i => i.OrderId!.Value).Distinct().ToList();
+        var orders = await db.Orders.AsNoTracking()
+            .Where(o => o.BusinessId == businessId && ids.Contains(o.Id))
+            .Select(o => new { o.Id, o.Number, o.Customer })
+            .ToDictionaryAsync(o => o.Id);
+
+        return withHours
+            .Where(i => orders.ContainsKey(i.OrderId!.Value))
+            .Select(i =>
+            {
+                var o = orders[i.OrderId!.Value];
+                var rate = i.LaborHourRate ?? fallbackRate;
+                return new AnalysisOrderSalary(o.Number, o.Customer, i.WorkHours!.Value, rate, Math.Round(i.WorkHours!.Value * rate, 2));
+            })
+            .OrderByDescending(s => s.Salary)
+            .Take(100)
+            .ToList();
     }
 
     private static (DateOnly From, DateOnly To) Period(int year, int? month) => month is { } m

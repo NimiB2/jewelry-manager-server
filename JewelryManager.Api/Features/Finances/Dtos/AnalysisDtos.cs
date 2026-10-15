@@ -29,7 +29,22 @@ public record AnalysisTotals(
     // Income per work hour; null when no hours were recorded.
     decimal? IncomePerHour,
     decimal FixedExpenses,
-    decimal VariableExpenses);
+    decimal VariableExpenses,
+    // Expenses of the orders group (materials, stones, setting...).
+    decimal OrderCosts,
+    // Expenses of the home group: paid out of the salary, not a cost of the business.
+    decimal HomeExpenses,
+    // Everything else: business, stock, other and ungrouped expenses.
+    decimal BusinessExpenses);
+
+/// <summary>The period right before the one asked for (last month, or last year), for comparison.</summary>
+public record AnalysisPrevious(decimal Income, decimal Expenses);
+
+/// <summary>Income and expenses of one calendar month, for the trend chart.</summary>
+public record AnalysisTrendPoint(int Year, int Month, decimal Income, decimal Expenses);
+
+/// <summary>What one completed order is worth in salary: its work hours times its frozen hourly rate.</summary>
+public record AnalysisOrderSalary(int Number, string? Customer, decimal Hours, decimal Rate, decimal Salary);
 
 public record FinanceAnalysisResponse(
     int Year,
@@ -40,4 +55,7 @@ public record FinanceAnalysisResponse(
     List<AnalysisSlice> ByCategory,
     List<AnalysisPair> ByGroupCategory,
     List<AnalysisTopItem> TopProducts,
-    List<AnalysisTopItem> TopMaterials);
+    List<AnalysisTopItem> TopMaterials,
+    AnalysisPrevious Previous,
+    List<AnalysisTrendPoint> Trend,
+    List<AnalysisOrderSalary> OrderSalaries);

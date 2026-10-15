@@ -124,6 +124,35 @@ public class FinancesTests(PostgresFixture pg)
         var materials = analysis.ByCategory.Single(s => s.Name == "חומרים");
         Assert.Equal((300m, 75m, 200m), (materials.Amount, materials.Percent, materials.PreviousAmount));
         Assert.Equal(400, analysis.ByGroup.Single(s => s.Name == "הזמנות").Amount);
+
+        // The split the profit view needs: order costs, home costs (paid from the salary) and the rest.
+        Assert.Equal((400m, 0m, 0m), (analysis.Totals.OrderCosts, analysis.Totals.HomeExpenses, analysis.Totals.BusinessExpenses));
+        Assert.Equal((0m, 200m), (analysis.Previous.Income, analysis.Previous.Expenses));
+        Assert.Equal(6, analysis.Trend.Count);
+        Assert.Equal((2025, 5, 1000m), (analysis.Trend[^1].Year, analysis.Trend[^1].Month, analysis.Trend[^1].Income));
+        Assert.Equal((2025, 4, 200m), (analysis.Trend[^2].Year, analysis.Trend[^2].Month, analysis.Trend[^2].Expenses));
+    }
+
+    [Fact]
+    public async Task Analysis_KeepsHomeCostsOutOfTheBusinessCosts_AndUsesTheCategoryDefaultGroup()
+    {
+        var b = pg.BusinessL;
+        await WithExpenses(b, s => s.CreateExpenseAsync(Expense(D(2025, 6, 2), 100) with { TypeName = "חשמל", GroupName = "הוצאות בית" }));
+        await WithExpenses(b, s => s.CreateExpenseAsync(Expense(D(2025, 6, 3), 50) with { TypeName = "שיווק", GroupName = "הוצאות עסק" }));
+        // No group of its own: it takes the default group saved for its category.
+        await WithExpenses(b, s => s.CreateExpenseAsync(Expense(D(2025, 6, 4), 70) with { TypeName = "חומרים" }));
+
+        await using (var db = pg.NewDb())
+        {
+            db.ExpenseTypes.Add(new ExpenseType { Id = Guid.NewGuid(), BusinessId = b, Name = "חומרים", GroupName = "הוצאות הזמנות" });
+            await db.SaveChangesAsync();
+        }
+
+        await using var read = pg.NewDb();
+        var analysis = await new FinanceAnalysisService(read, PostgresFixture.TenantFor(b)).GetAnalysisAsync(2025, 6);
+
+        Assert.Equal((70m, 100m, 50m), (analysis.Totals.OrderCosts, analysis.Totals.HomeExpenses, analysis.Totals.BusinessExpenses));
+        Assert.Equal(70, analysis.ByGroup.Single(s => s.Name == "הוצאות הזמנות").Amount);
     }
 
     [Fact]
