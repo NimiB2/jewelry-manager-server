@@ -18,6 +18,7 @@ public record SaveKeywordsDto([Required] List<string> Keywords);
 
 public record UploadResultResponse(
     Guid FileId,
+    bool FileWasAlreadyUploaded,
     int Added,
     int AlreadyKnown,
     int CardSettlements,

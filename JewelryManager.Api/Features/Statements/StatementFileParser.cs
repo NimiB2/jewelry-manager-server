@@ -70,13 +70,13 @@ public class StatementFileParser : IStatementFileParser
 
             var debit = Best(headers, [["חובה"]], "חובה", "debit");
             var credit = Best(headers, [["זכות"]], "זכות", "credit");
-            var amount = Best(headers, [["סכום חיוב"], ["סכום"], ["amount"]], "סכום", "amount");
+            var amount = Best(headers, [["סכום חיוב", "סכום החיוב"], ["סכום"], ["amount"]], "סכום", "amount");
             if (debit < 0 && credit < 0 && amount < 0) continue;
 
             var description = Best(
                 headers,
-                [["בית עסק"], ["תיאור", "תאור", "description"], ["פרטים"], ["סוג תנועה", "תנועה"], ["פעולה"]],
-                "בית עסק", "תיאור", "תאור", "פרטים", "description", "תנועה", "פעולה");
+                [["בית עסק", "בית העסק"], ["תיאור", "תאור", "description"], ["פרטים"], ["סוג תנועה", "תנועה"], ["פעולה"]],
+                "בית עסק", "בית העסק", "תיאור", "תאור", "פרטים", "description", "תנועה", "פעולה");
             var reference = Best(headers, [["אסמכתא", "אסמכתה", "reference"]], "אסמכתא", "אסמכתה", "reference");
 
             // A header nobody listed: the column with the longest text is the description.

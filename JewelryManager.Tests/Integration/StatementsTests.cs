@@ -49,7 +49,9 @@ public class StatementsTests(PostgresFixture pg)
         Assert.Equal(1, first.AutoIgnored); // the refund is money in
         Assert.Equal(3, first.Pending);     // two identical coffees are two real rows
 
-        await Assert.ThrowsAsync<BadRequestException>(() => Upload(StatementSource.Card, "again.csv", CardCsv));
+        var again = await Upload(StatementSource.Card, "again.csv", CardCsv);
+        Assert.True(again.FileWasAlreadyUploaded);
+        Assert.Equal(0, again.Added);
 
         var overlap = await Upload(StatementSource.Card, "card2.csv", CardCsv + "20/01/2031,חדש,40\n");
         Assert.Equal(1, overlap.Added);
@@ -122,5 +124,29 @@ public class StatementsTests(PostgresFixture pg)
         var done = (await With(s => s.GetLinesAsync("2034-04", null))).Single();
         Assert.Equal(StatementLineStatus.Created, done.Status);
         Assert.Equal(expense.Id, done.ExpenseId);
+    }
+
+    [Fact]
+    public async Task ClearOpenLines_KeepsLinesTiedToExpenses_AndTheFileCanBeReadAgain()
+    {
+        var csv = "תאריך חיוב,תאריך העסקה,בית העסק,סכום העסקה,סכום החיוב\n" +
+                  "02/05/2035,28/04/2035,חנות א,1000.00,250.00\n" +
+                  "02/05/2035,29/04/2035,חנות ב,40.00,40.00\n";
+        await Upload(StatementSource.Card, "card5.csv", csv);
+
+        // The billed amount (this month's part of a payment plan) is the amount, the transaction date is the date.
+        var lines = await With(s => s.GetLinesAsync("2035-04", null));
+        Assert.Equal([250m, 40m], lines.OrderBy(l => l.Date).Select(l => l.Amount));
+        Assert.Equal(["חנות א", "חנות ב"], lines.OrderBy(l => l.Date).Select(l => l.Description));
+
+        await With(s => s.CreateExpenseAsync(lines.Single(l => l.Amount == 40).Id, new CreateExpenseFromLineDto()));
+
+        var deleted = await With(s => s.ClearOpenLinesAsync("2035-04"));
+        Assert.Equal(1, deleted);
+
+        var again = await Upload(StatementSource.Card, "card5.csv", csv);
+        Assert.True(again.FileWasAlreadyUploaded);
+        Assert.Equal(1, again.Added);
+        Assert.Equal(2, (await With(s => s.GetLinesAsync("2035-04", null))).Count);
     }
 }

@@ -42,19 +42,23 @@ public partial class StatementsService(
         var bytes = buffer.ToArray();
         var hash = Convert.ToHexString(SHA256.HashData(bytes));
 
-        if (await db.StatementFiles.AnyAsync(f => f.BusinessId == businessId && f.FileHash == hash))
-            throw new BadRequestException("הקובץ הזה כבר הועלה");
-
         buffer.Position = 0;
         var parsed = parser.Parse(fileName, buffer, source);
         var keywords = await GetKeywordsAsync();
 
-        var file = new StatementFile
+        // The same file again is read again: rows already known are skipped, so only rows she cleared come back.
+        var file = await db.StatementFiles.FirstOrDefaultAsync(f => f.BusinessId == businessId && f.FileHash == hash);
+        var reuploaded = file is not null;
+        if (file is null)
         {
-            Id = Guid.NewGuid(), BusinessId = businessId, Source = source, FileName = Truncate(Path.GetFileName(fileName), 260),
-            FileHash = hash, PeriodFrom = parsed.Min(l => l.Date), PeriodTo = parsed.Max(l => l.Date),
-            TotalOut = parsed.Sum(l => l.Amount), UploadedAt = DateTime.UtcNow,
-        };
+            file = new StatementFile
+            {
+                Id = Guid.NewGuid(), BusinessId = businessId, Source = source, FileName = Truncate(Path.GetFileName(fileName), 260),
+                FileHash = hash, PeriodFrom = parsed.Min(l => l.Date), PeriodTo = parsed.Max(l => l.Date),
+                TotalOut = parsed.Sum(l => l.Amount), UploadedAt = DateTime.UtcNow,
+            };
+            db.StatementFiles.Add(file);
+        }
 
         var candidates = BuildLines(file, parsed, keywords);
 
@@ -62,7 +66,7 @@ public partial class StatementsService(
         var known = await KnownFingerprintsAsync(businessId, candidates.Select(l => l.Fingerprint).ToList());
         var fresh = candidates.Where(l => !known.Contains(l.Fingerprint)).ToList();
 
-        db.StatementFiles.Add(file);
+        foreach (var month in fresh.Select(l => l.Date).Distinct()) await EnsureMonthOpenAsync(month);
         db.StatementLines.AddRange(fresh);
 
         try
@@ -77,7 +81,7 @@ public partial class StatementsService(
         await LinkSettlementsAsync(businessId);
 
         return new UploadResultResponse(
-            file.Id, fresh.Count, candidates.Count - fresh.Count,
+            file.Id, reuploaded, fresh.Count, candidates.Count - fresh.Count,
             fresh.Count(l => l.Status == StatementLineStatus.CardSettlement),
             fresh.Count(l => l.Status == StatementLineStatus.Ignored),
             fresh.Count(l => l.Status == StatementLineStatus.Pending));
@@ -388,6 +392,21 @@ public partial class StatementsService(
         var closed = await db.StatementMonthCloses.AnyAsync(m => m.BusinessId == businessId && m.Month == month);
 
         return new MonthCheckResponse(month, closed, pending, uncovered, notInStatements, pending == 0 && uncovered.Count == 0);
+    }
+
+    /// <summary>
+    /// Deletes the month's lines that have no expense behind them, so the statement can be uploaded again
+    /// and read afresh. Lines linked to an expense stay, and no expense is ever touched.
+    /// </summary>
+    public async Task<int> ClearOpenLinesAsync(string month)
+    {
+        var businessId = tenant.GetBusinessId();
+        var (from, to) = MonthRange(month);
+        await EnsureMonthOpenAsync(from);
+
+        return await db.StatementLines
+            .Where(l => l.BusinessId == businessId && l.Date >= from && l.Date <= to && l.ExpenseId == null)
+            .ExecuteDeleteAsync();
     }
 
     public async Task CloseMonthAsync(string month)

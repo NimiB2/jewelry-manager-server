@@ -70,6 +70,10 @@ public class StatementsController(StatementsService service) : ControllerBase
     [HttpGet("months/{month}")]
     public Task<MonthCheckResponse> CheckMonth(string month) => service.CheckMonthAsync(month);
 
+    /// <summary>Deletes the month's undecided and ignored lines (not the ones tied to an expense) so the file can be read again.</summary>
+    [HttpPost("months/{month}/clear-open")]
+    public async Task<object> ClearOpen(string month) => new { deleted = await service.ClearOpenLinesAsync(month) };
+
     [HttpPost("months/{month}/close")]
     public async Task<IActionResult> CloseMonth(string month)
     {
