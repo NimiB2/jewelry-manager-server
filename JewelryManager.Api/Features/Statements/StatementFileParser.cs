@@ -73,8 +73,14 @@ public class StatementFileParser : IStatementFileParser
             var amount = Best(headers, [["סכום חיוב"], ["סכום"], ["amount"]], "סכום", "amount");
             if (debit < 0 && credit < 0 && amount < 0) continue;
 
-            var description = Best(headers, [["בית עסק"], ["תיאור", "תאור", "description"], ["פרטים"]], "בית עסק", "תיאור", "תאור", "פרטים", "description");
+            var description = Best(
+                headers,
+                [["בית עסק"], ["תיאור", "תאור", "description"], ["פרטים"], ["סוג תנועה", "תנועה"], ["פעולה"]],
+                "בית עסק", "תיאור", "תאור", "פרטים", "description", "תנועה", "פעולה");
             var reference = Best(headers, [["אסמכתא", "אסמכתה", "reference"]], "אסמכתא", "אסמכתה", "reference");
+
+            // A header nobody listed: the column with the longest text is the description.
+            if (description < 0) description = LongestTextColumn(rows, i, [date, debit, credit, amount, reference]);
             return (i, new ColumnMap(date, description, reference, debit, credit, amount));
         }
 
@@ -97,6 +103,26 @@ public class StatementFileParser : IStatementFileParser
         for (var c = 0; c < headers.Length; c++)
             if (headers[c].Length > 0 && mustContainOneOf.Any(headers[c].Contains)) return c;
         return -1;
+    }
+
+    private static int LongestTextColumn(List<string[]> rows, int headerIndex, int[] taken)
+    {
+        var sample = rows.Skip(headerIndex + 1).Take(30).ToList();
+        var width = sample.Count == 0 ? 0 : sample.Max(r => r.Length);
+
+        var best = -1;
+        var bestLength = 0.0;
+        for (var c = 0; c < width; c++)
+        {
+            if (taken.Contains(c)) continue;
+
+            var texts = sample.Select(r => Cell(r, c).Trim()).Where(t => t.Length > 0 && ParseNumber(t) is null && ParseDate(t) is null).ToList();
+            if (texts.Count == 0) continue;
+
+            var average = texts.Average(t => t.Length);
+            if (average > bestLength) { best = c; bestLength = average; }
+        }
+        return best;
     }
 
     private static decimal? ReadAmount(string[] row, ColumnMap map, StatementSource source)
