@@ -149,4 +149,66 @@ public class StatementsTests(PostgresFixture pg)
         Assert.Equal(1, again.Added);
         Assert.Equal(2, (await With(s => s.GetLinesAsync("2035-04", null))).Count);
     }
+
+    [Fact]
+    public async Task AMonthlyExpenseEnteredOnAnotherDay_IsMatchedToItsBankLine_NotDuplicated()
+    {
+        // Entered on the 15th as the supplier's monthly fee; the bank charges it on the 27th under a longer name.
+        await using (var db = pg.NewDb())
+        {
+            await new ExpensesService(db, PostgresFixture.TenantFor(pg.BusinessM), Storage).CreateExpenseAsync(
+                new CreateExpenseDto(new DateOnly(2036, 9, 15), ExpenseCategory.Fixed, "רואה חשבון", 354, null, Supplier: "גבריאל לוי"));
+        }
+
+        var result = await Upload(StatementSource.Bank, "bank6.csv",
+            "תאריך,סוג תנועה,חובה,זכות\n27/09/2036,גבריאל לוי רואי חשבון,354.00,\n28/09/2036,משהו אחר,354.00,\n");
+
+        Assert.Equal(1, result.AutoMatched);
+        Assert.Equal(1, result.Pending);
+
+        var lines = await With(s => s.GetLinesAsync("2036-09", null));
+        Assert.Equal(StatementLineStatus.Matched, lines.Single(l => l.Description.StartsWith("גבריאל")).Status);
+    }
+
+    [Fact]
+    public async Task AKnownPayee_GetsItsDetailsAndGroupFromBefore_AndCanBeAddedInOneStep()
+    {
+        await using (var db = pg.NewDb())
+        {
+            db.ExpenseTypes.Add(new ExpenseType { Id = Guid.NewGuid(), BusinessId = pg.BusinessM, Name = "חשבונות", GroupName = "הוצאות בית" });
+            await db.SaveChangesAsync();
+        }
+
+        await Upload(StatementSource.Bank, "bank7a.csv", "תאריך,סוג תנועה,חובה,זכות\n05/10/2037,חברת החשמל,200.00,\n");
+        var first = (await With(s => s.GetLinesAsync("2037-10", null))).Single();
+        Assert.Null(first.Learned);
+
+        // The category alone decides the group.
+        var created = await With(s => s.CreateExpenseAsync(first.Id, new CreateExpenseFromLineDto("חשמל", "חשבונות", null, null)));
+        Assert.Equal("הוצאות בית", created.GroupName);
+
+        await Upload(StatementSource.Bank, "bank7b.csv", "תאריך,סוג תנועה,חובה,זכות\n05/11/2037,חברת החשמל,200.00,\n05/11/2037,חנות לא מוכרת,10.00,\n");
+        var lines = await With(s => s.GetLinesAsync("2037-11", StatementLineStatus.Pending));
+        var known = lines.Single(l => l.Description == "חברת החשמל");
+
+        Assert.Equal("חשבונות", known.Learned?.TypeName);
+        Assert.Equal("חשמל", known.Learned?.Description);
+        Assert.True(known.LooksRecurring);
+        Assert.Null(lines.Single(l => l.Description == "חנות לא מוכרת").Learned);
+
+        Assert.Equal(1, await With(s => s.ApplyKnownAsync("2037-11")));
+        Assert.Single(await With(s => s.GetLinesAsync("2037-11", StatementLineStatus.Pending)));
+    }
+
+    [Fact]
+    public async Task CreateExpense_CanMakeItARecurringMonthlyExpense()
+    {
+        await Upload(StatementSource.Bank, "bank8.csv", "תאריך,סוג תנועה,חובה,זכות\n03/06/2038,דמי ניהול,45.00,\n");
+        var line = (await With(s => s.GetLinesAsync("2038-06", null))).Single();
+
+        var expense = await With(s => s.CreateExpenseAsync(line.Id, new CreateExpenseFromLineDto(RepeatEveryMonths: 1)));
+
+        Assert.Equal(1, expense.RepeatEveryMonths);
+        Assert.NotNull(expense.SeriesId);
+    }
 }

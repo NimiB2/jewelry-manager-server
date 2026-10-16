@@ -21,10 +21,6 @@ public partial class StatementsService(
 {
     public const long MaxFileBytes = 5 * 1024 * 1024;
 
-    // How far apart (in days) the date of a purchase and the date on the statement may be to still be suggested.
-    private const int SuggestionWindowDays = 5;
-    private const int StrongWindowDays = 2;
-
     private static readonly string[] DefaultKeywords =
         ["ויזה", "מקס", "כאל", "ישראכרט", "אמריקן אקספרס", "דיינרס", "לאומי קארד", "visa", "max", "cal", "isracard"];
 
@@ -79,12 +75,80 @@ public partial class StatementsService(
         }
 
         await LinkSettlementsAsync(businessId);
+        var pendingBefore = fresh.Count(l => l.Status == StatementLineStatus.Pending);
+        var autoMatched = await AutoMatchAsync(businessId, fresh.Where(l => l.Status == StatementLineStatus.Pending).Select(l => l.Id).ToList());
 
         return new UploadResultResponse(
             file.Id, reuploaded, fresh.Count, candidates.Count - fresh.Count,
             fresh.Count(l => l.Status == StatementLineStatus.CardSettlement),
             fresh.Count(l => l.Status == StatementLineStatus.Ignored),
-            fresh.Count(l => l.Status == StatementLineStatus.Pending));
+            pendingBefore - autoMatched,
+            autoMatched);
+    }
+
+    // ── Automatic matching ────────────────────────────────────────────────────
+
+    /// <summary>Matches the month's undecided lines to expenses that are clearly the same. Returns how many were matched.</summary>
+    public async Task<int> AutoMatchMonthAsync(string month)
+    {
+        var businessId = tenant.GetBusinessId();
+        var (from, to) = MonthRange(month);
+        await EnsureMonthOpenAsync(from);
+
+        var ids = await db.StatementLines.AsNoTracking()
+            .Where(l => l.BusinessId == businessId && l.Status == StatementLineStatus.Pending && l.Date >= from && l.Date <= to)
+            .Select(l => l.Id)
+            .ToListAsync();
+        return await AutoMatchAsync(businessId, ids);
+    }
+
+    // Only a sure match is made by itself: same amount, the same name, and exactly one such expense. A line
+    // with no clear partner stays pending for her to decide.
+    private async Task<int> AutoMatchAsync(Guid businessId, List<Guid> lineIds)
+    {
+        if (lineIds.Count == 0) return 0;
+
+        var lines = await db.StatementLines
+            .Where(l => l.BusinessId == businessId && lineIds.Contains(l.Id) && l.Status == StatementLineStatus.Pending && l.Amount > 0)
+            .OrderBy(l => l.Date)
+            .ToListAsync();
+        if (lines.Count == 0) return 0;
+
+        var closed = (await db.StatementMonthCloses.AsNoTracking().Where(m => m.BusinessId == businessId).Select(m => m.Month).ToListAsync()).ToHashSet();
+        var pool = await UnlinkedExpensesAsync(
+            businessId, lines.Min(l => l.Date).AddDays(-StatementMatching.NamedWindowDays), lines.Max(l => l.Date).AddDays(StatementMatching.NamedWindowDays));
+
+        var taken = new HashSet<Guid>();
+        var matched = 0;
+        foreach (var line in lines)
+        {
+            if (closed.Contains($"{line.Date.Year:0000}-{line.Date.Month:00}")) continue;
+
+            var lineKey = StatementMatching.KeyOf(line.Description);
+            var sure = pool
+                .Where(e => !taken.Contains(e.Id) && StatementMatching.IsCandidate(line, e, lineKey) && StatementMatching.NameMatches(lineKey, e))
+                .ToList();
+            if (sure.Count != 1) continue;
+
+            line.Status = StatementLineStatus.Matched;
+            line.ExpenseId = sure[0].Id;
+            taken.Add(sure[0].Id);
+            matched++;
+        }
+
+        if (matched == 0) return 0;
+
+        try
+        {
+            await db.SaveChangesAsync();
+            return matched;
+        }
+        catch (DbUpdateException)
+        {
+            // An expense got linked elsewhere in the meantime. Nothing is lost: the lines stay pending.
+            db.ChangeTracker.Clear();
+            return 0;
+        }
     }
 
     private static List<StatementLine> BuildLines(StatementFile file, List<ParsedStatementLine> parsed, List<string> keywords)
@@ -230,13 +294,20 @@ public partial class StatementsService(
 
         var pending = lines.Where(l => l.Status == StatementLineStatus.Pending).ToList();
         var pool = pending.Count == 0 ? [] : await UnlinkedExpensesAsync(
-            businessId, pending.Min(l => l.Date).AddDays(-SuggestionWindowDays), pending.Max(l => l.Date).AddDays(SuggestionWindowDays));
+            businessId, pending.Min(l => l.Date).AddDays(-StatementMatching.NamedWindowDays), pending.Max(l => l.Date).AddDays(StatementMatching.NamedWindowDays));
+        var memory = pending.Count == 0 ? null : await LoadMemoryAsync(businessId);
 
-        return lines.Select(l => new StatementLineResponse(
-            l.Id, l.Source, l.Date, l.Amount, l.Description, l.Reference, l.Status, l.ExpenseId,
-            l.ExpenseId is { } id && linked.TryGetValue(id, out var text) ? text : null,
-            l.CoveredByFileId != null,
-            l.Status == StatementLineStatus.Pending ? SuggestionsFor(l, pool) : [])).ToList();
+        return lines.Select(l =>
+        {
+            var isPending = l.Status == StatementLineStatus.Pending;
+            return new StatementLineResponse(
+                l.Id, l.Source, l.Date, l.Amount, l.Description, l.Reference, l.Status, l.ExpenseId,
+                l.ExpenseId is { } id && linked.TryGetValue(id, out var text) ? text : null,
+                l.CoveredByFileId != null,
+                isPending ? StatementMatching.SuggestionsFor(l, pool) : [],
+                isPending && l.Amount > 0 ? memory!.LearnedFor(l) : null,
+                isPending && l.Amount > 0 && memory!.LooksRecurring(l));
+        }).ToList();
     }
 
     private async Task<List<Expense>> UnlinkedExpensesAsync(Guid businessId, DateOnly from, DateOnly to) =>
@@ -245,26 +316,34 @@ public partial class StatementsService(
                 && !db.StatementLines.Any(l => l.ExpenseId == e.Id))
             .ToListAsync();
 
-    // Same amount and a close date. Only a suggestion: she confirms it, so a wrong guess never hides a real expense.
-    private static List<MatchSuggestion> SuggestionsFor(StatementLine line, List<Expense> pool)
+    private async Task<StatementMemory> LoadMemoryAsync(Guid businessId)
     {
-        if (line.Amount <= 0) return [];
+        // Expenses she already decided on a line, plus every supplier she has bought from.
+        var fromLines = await db.StatementLines.AsNoTracking()
+            .Where(l => l.BusinessId == businessId && l.ExpenseId != null)
+            .Join(db.Expenses.AsNoTracking(), l => l.ExpenseId!.Value, e => e.Id, (l, e) => new { l.Description, Expense = e })
+            .ToListAsync();
+        var fromSuppliers = await db.Expenses.AsNoTracking()
+            .Where(e => e.BusinessId == businessId && e.Supplier != null)
+            .OrderByDescending(e => e.Date)
+            .Take(1000)
+            .ToListAsync();
 
-        var lineKey = ExpensesService.SupplierKey(line.Description);
-        return pool
-            .Where(e => Math.Abs(e.Amount - line.Amount) < 0.005m && Math.Abs(e.Date.DayNumber - line.Date.DayNumber) <= SuggestionWindowDays)
-            .Select(e =>
-            {
-                var days = Math.Abs(e.Date.DayNumber - line.Date.DayNumber);
-                var supplierKey = ExpensesService.SupplierKey(e.Supplier ?? "");
-                var sameName = supplierKey.Length >= 3 && (lineKey.Contains(supplierKey) || supplierKey.Contains(lineKey));
-                return (Days: days, Suggestion: new MatchSuggestion(e.Id, e.Date, e.Description, e.Supplier, e.Amount, days <= StrongWindowDays || sameName));
-            })
-            .OrderByDescending(x => x.Suggestion.Strong).ThenBy(x => x.Days)
-            .Take(3)
-            .Select(x => x.Suggestion)
+        var decided = fromLines.Select(x => (StatementMatching.KeyOf(x.Description), x.Expense))
+            .Concat(fromSuppliers.Select(e => (StatementMatching.KeyOf(e.Supplier!), e)))
             .ToList();
+
+        var since = DateOnly.FromDateTime(DateTime.UtcNow).AddMonths(-14);
+        var history = (await db.StatementLines.AsNoTracking()
+                .Where(l => l.BusinessId == businessId && l.Amount > 0 && l.Date >= since)
+                .Select(l => new { l.Description, l.Date, l.Amount })
+                .ToListAsync())
+            .Select(l => (StatementMatching.KeyOf(l.Description), l.Date, l.Amount))
+            .ToList();
+
+        return new StatementMemory(decided, history);
     }
+
 
     // ── Decisions on one line ─────────────────────────────────────────────────
 
@@ -288,13 +367,16 @@ public partial class StatementsService(
 
         var description = string.IsNullOrWhiteSpace(dto.Description) ? line.Description : dto.Description.Trim();
         var supplier = string.IsNullOrWhiteSpace(dto.Supplier) ? null : dto.Supplier.Trim();
+        var typeName = string.IsNullOrWhiteSpace(dto.TypeName) ? null : dto.TypeName.Trim();
+        var groupName = string.IsNullOrWhiteSpace(dto.GroupName) ? await GroupOfTypeAsync(typeName) : dto.GroupName.Trim();
 
         // The expense and its link are saved together, so a failure in between cannot leave an expense that
         // the next attempt would create a second time.
         await using var tx = await db.Database.BeginTransactionAsync();
 
         var created = await expenses.CreateExpenseAsync(new CreateExpenseDto(
-            line.Date, ExpenseCategory.Variable, description, line.Amount, null, dto.TypeName, null, supplier, null, dto.GroupName));
+            line.Date, dto.RepeatEveryMonths is null ? ExpenseCategory.Variable : ExpenseCategory.Fixed, description, line.Amount,
+            dto.RepeatEveryMonths, typeName, null, supplier, null, groupName));
 
         var fresh = await db.StatementLines.FirstAsync(l => l.Id == lineId && l.BusinessId == line.BusinessId);
         fresh.Status = StatementLineStatus.Created;
@@ -302,6 +384,43 @@ public partial class StatementsService(
         await SaveLinkAsync();
 
         await tx.CommitAsync();
+        return created;
+    }
+
+    // The group she set for a category in her settings, so choosing the category is enough.
+    private async Task<string?> GroupOfTypeAsync(string? typeName)
+    {
+        if (typeName is null) return null;
+
+        var businessId = tenant.GetBusinessId();
+        return await db.ExpenseTypes.AsNoTracking()
+            .Where(t => t.BusinessId == businessId && t.Name == typeName)
+            .Select(t => t.GroupName)
+            .FirstOrDefaultAsync();
+    }
+
+    /// <summary>Adds an expense for every undecided line whose payee was filed before, using the same details. Returns how many.</summary>
+    public async Task<int> ApplyKnownAsync(string month)
+    {
+        var businessId = tenant.GetBusinessId();
+        var (from, to) = MonthRange(month);
+        await EnsureMonthOpenAsync(from);
+
+        var pending = await db.StatementLines.AsNoTracking()
+            .Where(l => l.BusinessId == businessId && l.Status == StatementLineStatus.Pending && l.Amount > 0 && l.Date >= from && l.Date <= to)
+            .OrderBy(l => l.Date)
+            .ToListAsync();
+        if (pending.Count == 0) return 0;
+
+        var memory = await LoadMemoryAsync(businessId);
+        var created = 0;
+        foreach (var line in pending)
+        {
+            if (memory.LearnedFor(line) is not { } learned) continue;
+
+            await CreateExpenseAsync(line.Id, new CreateExpenseFromLineDto(learned.Description, learned.TypeName, learned.GroupName, learned.Supplier));
+            created++;
+        }
         return created;
     }
 

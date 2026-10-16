@@ -11,7 +11,12 @@ public record CreateExpenseFromLineDto(
     [MaxLength(300)] string? Description = null,
     [MaxLength(100)] string? TypeName = null,
     [MaxLength(100)] string? GroupName = null,
-    [MaxLength(100)] string? Supplier = null);
+    [MaxLength(100)] string? Supplier = null,
+    // Makes it a monthly expense from now on.
+    [Range(1, 24)] int? RepeatEveryMonths = null);
+
+/// <summary>What earlier expenses of the same payee were filed under.</summary>
+public record LearnedDefaults(string Description, string? TypeName, string? GroupName, string? Supplier);
 
 /// <summary>Body of PUT /statements/settlement-keywords.</summary>
 public record SaveKeywordsDto([Required] List<string> Keywords);
@@ -23,7 +28,8 @@ public record UploadResultResponse(
     int AlreadyKnown,
     int CardSettlements,
     int AutoIgnored,
-    int Pending);
+    int Pending,
+    int AutoMatched);
 
 public record StatementFileResponse(
     Guid Id, StatementSource Source, string FileName, DateOnly? PeriodFrom, DateOnly? PeriodTo,
@@ -43,7 +49,9 @@ public record StatementLineResponse(
     Guid? ExpenseId,
     string? ExpenseDescription,
     bool CoveredByCardStatement,
-    List<MatchSuggestion> Suggestions);
+    List<MatchSuggestion> Suggestions,
+    LearnedDefaults? Learned,
+    bool LooksRecurring);
 
 public record UnlinkedExpenseResponse(Guid Id, DateOnly Date, string Description, string? Supplier, decimal Amount);
 

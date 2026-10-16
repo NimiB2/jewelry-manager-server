@@ -74,6 +74,14 @@ public class StatementsController(StatementsService service) : ControllerBase
     [HttpPost("months/{month}/clear-open")]
     public async Task<object> ClearOpen(string month) => new { deleted = await service.ClearOpenLinesAsync(month) };
 
+    /// <summary>Matches the month's lines to expenses that are clearly the same ones (same amount and name).</summary>
+    [HttpPost("months/{month}/auto-match")]
+    public async Task<object> AutoMatch(string month) => new { matched = await service.AutoMatchMonthAsync(month) };
+
+    /// <summary>Adds an expense for every undecided line whose payee was filed before.</summary>
+    [HttpPost("months/{month}/apply-known")]
+    public async Task<object> ApplyKnown(string month) => new { created = await service.ApplyKnownAsync(month) };
+
     [HttpPost("months/{month}/close")]
     public async Task<IActionResult> CloseMonth(string month)
     {
