@@ -35,6 +35,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<ExpenseSupplier> ExpenseSuppliers => Set<ExpenseSupplier>();
     public DbSet<ExpenseGroup> ExpenseGroups => Set<ExpenseGroup>();
     public DbSet<TaskCategory> TaskCategories => Set<TaskCategory>();
+    public DbSet<StatementFile> StatementFiles => Set<StatementFile>();
+    public DbSet<StatementLine> StatementLines => Set<StatementLine>();
+    public DbSet<CardSettlementKeyword> CardSettlementKeywords => Set<CardSettlementKeyword>();
+    public DbSet<StatementMonthClose> StatementMonthCloses => Set<StatementMonthClose>();
 
     // More DbSets will be added here as features are built.
 
@@ -271,6 +275,56 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasIndex(c => new { c.BusinessId, c.Name }).IsUnique();
             e.Property(c => c.Name).HasMaxLength(100);
             e.HasOne<Business>().WithMany().HasForeignKey(c => c.BusinessId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ── Statements ────────────────────────────────────────────────────────
+        b.Entity<StatementFile>(e =>
+        {
+            // The same file cannot be uploaded twice.
+            e.HasIndex(f => new { f.BusinessId, f.FileHash }).IsUnique();
+            e.Property(f => f.FileName).HasMaxLength(260);
+            e.Property(f => f.FileHash).HasMaxLength(64);
+            e.Property(f => f.Source).HasConversion<string>().HasMaxLength(10);
+            e.Property(f => f.TotalOut).HasPrecision(18, 2);
+            e.HasOne<Business>().WithMany().HasForeignKey(f => f.BusinessId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<StatementLine>(e =>
+        {
+            e.HasIndex(l => new { l.BusinessId, l.Date });
+            e.HasIndex(l => l.FileId);
+
+            // The same row in two overlapping statements is one row.
+            e.HasIndex(l => new { l.BusinessId, l.Fingerprint }).IsUnique();
+
+            // An expense belongs to at most one statement line: the database itself blocks a double link.
+            e.HasIndex(l => l.ExpenseId).IsUnique().HasFilter("\"ExpenseId\" IS NOT NULL");
+            e.Property(l => l.Amount).HasPrecision(18, 2);
+            e.Property(l => l.Description).HasMaxLength(300);
+            e.Property(l => l.Reference).HasMaxLength(60);
+            e.Property(l => l.Fingerprint).HasMaxLength(64);
+            e.Property(l => l.Source).HasConversion<string>().HasMaxLength(10);
+            e.Property(l => l.Status).HasConversion<string>().HasMaxLength(20);
+            e.HasOne<StatementFile>().WithMany().HasForeignKey(l => l.FileId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Business>().WithMany().HasForeignKey(l => l.BusinessId).OnDelete(DeleteBehavior.Cascade);
+
+            // Deleting an expense sends its line back to pending, so the money is never silently lost.
+            e.HasOne<Expense>().WithMany().HasForeignKey(l => l.ExpenseId).OnDelete(DeleteBehavior.SetNull);
+            e.HasOne<StatementFile>().WithMany().HasForeignKey(l => l.CoveredByFileId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        b.Entity<CardSettlementKeyword>(e =>
+        {
+            e.HasIndex(k => new { k.BusinessId, k.Keyword }).IsUnique();
+            e.Property(k => k.Keyword).HasMaxLength(60);
+            e.HasOne<Business>().WithMany().HasForeignKey(k => k.BusinessId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<StatementMonthClose>(e =>
+        {
+            e.HasIndex(m => new { m.BusinessId, m.Month }).IsUnique();
+            e.Property(m => m.Month).HasMaxLength(7);
+            e.HasOne<Business>().WithMany().HasForeignKey(m => m.BusinessId).OnDelete(DeleteBehavior.Cascade);
         });
 
         // ── Tasks ─────────────────────────────────────────────────────────────

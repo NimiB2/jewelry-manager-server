@@ -49,6 +49,28 @@ namespace JewelryManager.Api.Migrations
                     b.ToTable("Businesses");
                 });
 
+            modelBuilder.Entity("JewelryManager.Api.Data.Entities.CardSettlementKeyword", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("BusinessId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Keyword")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BusinessId", "Keyword")
+                        .IsUnique();
+
+                    b.ToTable("CardSettlementKeywords");
+                });
+
             modelBuilder.Entity("JewelryManager.Api.Data.Entities.Collection", b =>
                 {
                     b.Property<Guid>("Id")
@@ -893,6 +915,146 @@ namespace JewelryManager.Api.Migrations
                     b.ToTable("Settings", (string)null);
                 });
 
+            modelBuilder.Entity("JewelryManager.Api.Data.Entities.StatementFile", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("BusinessId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("FileHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(260)
+                        .HasColumnType("character varying(260)");
+
+                    b.Property<DateOnly?>("PeriodFrom")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly?>("PeriodTo")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<decimal>("TotalOut")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateTime>("UploadedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BusinessId", "FileHash")
+                        .IsUnique();
+
+                    b.ToTable("StatementFiles");
+                });
+
+            modelBuilder.Entity("JewelryManager.Api.Data.Entities.StatementLine", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<Guid>("BusinessId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("CoveredByFileId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateOnly>("Date")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<Guid?>("ExpenseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("FileId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Fingerprint")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Reference")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CoveredByFileId");
+
+                    b.HasIndex("ExpenseId")
+                        .IsUnique()
+                        .HasFilter("\"ExpenseId\" IS NOT NULL");
+
+                    b.HasIndex("FileId");
+
+                    b.HasIndex("BusinessId", "Date");
+
+                    b.HasIndex("BusinessId", "Fingerprint")
+                        .IsUnique();
+
+                    b.ToTable("StatementLines");
+                });
+
+            modelBuilder.Entity("JewelryManager.Api.Data.Entities.StatementMonthClose", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("BusinessId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("ClosedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Month")
+                        .IsRequired()
+                        .HasMaxLength(7)
+                        .HasColumnType("character varying(7)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BusinessId", "Month")
+                        .IsUnique();
+
+                    b.ToTable("StatementMonthCloses");
+                });
+
             modelBuilder.Entity("JewelryManager.Api.Data.Entities.TaskCategory", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1008,6 +1170,15 @@ namespace JewelryManager.Api.Migrations
                         .IsUnique();
 
                     b.ToTable("Users");
+                });
+
+            modelBuilder.Entity("JewelryManager.Api.Data.Entities.CardSettlementKeyword", b =>
+                {
+                    b.HasOne("JewelryManager.Api.Data.Entities.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("JewelryManager.Api.Data.Entities.Collection", b =>
@@ -1252,6 +1423,49 @@ namespace JewelryManager.Api.Migrations
                         .IsRequired();
 
                     b.Navigation("Business");
+                });
+
+            modelBuilder.Entity("JewelryManager.Api.Data.Entities.StatementFile", b =>
+                {
+                    b.HasOne("JewelryManager.Api.Data.Entities.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("JewelryManager.Api.Data.Entities.StatementLine", b =>
+                {
+                    b.HasOne("JewelryManager.Api.Data.Entities.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("JewelryManager.Api.Data.Entities.StatementFile", null)
+                        .WithMany()
+                        .HasForeignKey("CoveredByFileId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("JewelryManager.Api.Data.Entities.Expense", null)
+                        .WithMany()
+                        .HasForeignKey("ExpenseId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("JewelryManager.Api.Data.Entities.StatementFile", null)
+                        .WithMany()
+                        .HasForeignKey("FileId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("JewelryManager.Api.Data.Entities.StatementMonthClose", b =>
+                {
+                    b.HasOne("JewelryManager.Api.Data.Entities.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("JewelryManager.Api.Data.Entities.TaskCategory", b =>

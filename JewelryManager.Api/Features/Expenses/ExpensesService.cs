@@ -246,8 +246,18 @@ public class ExpensesService(AppDbContext db, CurrentUserAccessor tenant, IInvoi
             if (series is not null) series.IsActive = false;
         }
 
+        // A statement line that pointed at a deleted expense goes back to pending, so that money is not forgotten.
+        await using var tx = await db.Database.BeginTransactionAsync();
+        var doomedIds = doomed.Select(e => e.Id).ToList();
+        await db.StatementLines
+            .Where(l => l.BusinessId == businessId && l.ExpenseId != null && doomedIds.Contains(l.ExpenseId.Value))
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(l => l.Status, StatementLineStatus.Pending)
+                .SetProperty(l => l.ExpenseId, (Guid?)null));
+
         db.Expenses.RemoveRange(doomed);
         await db.SaveChangesAsync();
+        await tx.CommitAsync();
 
         // The database goes first; a file that fails to delete is left behind rather than blocking the delete.
         foreach (var stored in doomed.Select(e => e.InvoiceStoredName).Where(n => n is not null))
