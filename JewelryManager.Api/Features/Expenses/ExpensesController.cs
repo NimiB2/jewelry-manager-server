@@ -20,6 +20,14 @@ public class ExpensesController(ExpensesService service) : ControllerBase
         return NoContent();
     }
 
+    /// <summary>The expenses that have no invoice, to look over before deleting them.</summary>
+    [HttpGet("without-receipt")]
+    public Task<WithoutReceiptList> GetWithoutReceipt(DateOnly? from, DateOnly? to, bool includeRecurring = false) =>
+        service.GetWithoutReceiptAsync(from, to, includeRecurring);
+
+    [HttpPost("without-receipt/delete")]
+    public async Task<object> DeleteWithoutReceipt(DeleteWithoutReceiptDto dto) => new { deleted = await service.DeleteWithoutReceiptAsync(dto) };
+
     [HttpGet("{id:guid}")]
     public Task<ExpenseResponse> GetExpense(Guid id) => service.GetExpenseAsync(id);
 

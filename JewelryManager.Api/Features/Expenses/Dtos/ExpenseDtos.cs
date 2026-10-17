@@ -69,3 +69,23 @@ public record ExpenseResponse(
     string? Supplier,
     string? Notes,
     string? GroupName);
+
+/// <summary>One expense that has no invoice, as shown before a bulk delete.</summary>
+public record WithoutReceiptItem(
+    Guid Id,
+    DateOnly Date,
+    string Description,
+    string? Supplier,
+    string? TypeName,
+    decimal Amount,
+    bool IsRecurring,
+    bool LinkedToOrder,
+    bool FromStatement);
+
+public record WithoutReceiptList(List<WithoutReceiptItem> Items, decimal Total);
+
+/// <summary>
+/// Body of POST /expenses/without-receipt/delete. ExpectedCount is what she saw in the preview: if the books
+/// changed since, nothing is deleted and she looks again.
+/// </summary>
+public record DeleteWithoutReceiptDto(DateOnly? From, DateOnly? To, bool IncludeRecurring, [Range(1, 100_000)] int ExpectedCount);

@@ -267,6 +267,54 @@ public class ExpensesService(AppDbContext db, CurrentUserAccessor tenant, IInvoi
         }
     }
 
+    // ── Bulk cleanup ──────────────────────────────────────────────────────────
+
+    // Expenses with no invoice: not ticked and no file. A recurring one is left out unless she asks for it.
+    private IQueryable<Expense> WithoutReceiptQuery(DateOnly? from, DateOnly? to, bool includeRecurring)
+    {
+        var businessId = tenant.GetBusinessId();
+        var query = db.Expenses.Where(e => e.BusinessId == businessId && !e.HasReceipt && e.InvoiceStoredName == null);
+        if (from is { } f) query = query.Where(e => e.Date >= f);
+        if (to is { } t) query = query.Where(e => e.Date <= t);
+        if (!includeRecurring) query = query.Where(e => e.SeriesId == null);
+        return query;
+    }
+
+    public async Task<WithoutReceiptList> GetWithoutReceiptAsync(DateOnly? from, DateOnly? to, bool includeRecurring)
+    {
+        var items = await WithoutReceiptQuery(from, to, includeRecurring).AsNoTracking()
+            .OrderBy(e => e.Date)
+            .Select(e => new WithoutReceiptItem(
+                e.Id, e.Date, e.Description, e.Supplier, e.TypeName, e.Amount,
+                e.SeriesId != null, e.OrderId != null, db.StatementLines.Any(l => l.ExpenseId == e.Id)))
+            .ToListAsync();
+        return new WithoutReceiptList(items, items.Sum(i => i.Amount));
+    }
+
+    /// <summary>
+    /// Deletes every expense the preview showed. Statement lines that pointed at them go back to pending.
+    /// Nothing is deleted when the number differs from what she saw.
+    /// </summary>
+    public async Task<int> DeleteWithoutReceiptAsync(DeleteWithoutReceiptDto dto)
+    {
+        var businessId = tenant.GetBusinessId();
+        await using var tx = await db.Database.BeginTransactionAsync();
+
+        var count = await WithoutReceiptQuery(dto.From, dto.To, dto.IncludeRecurring).CountAsync();
+        if (count != dto.ExpectedCount) throw new BadRequestException("הרשימה השתנתה מאז שנבדקה. כדאי לבדוק אותה שוב");
+
+        await db.StatementLines
+            .Where(l => l.BusinessId == businessId && l.ExpenseId != null
+                && WithoutReceiptQuery(dto.From, dto.To, dto.IncludeRecurring).Any(e => e.Id == l.ExpenseId))
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(l => l.Status, StatementLineStatus.Pending)
+                .SetProperty(l => l.ExpenseId, (Guid?)null));
+
+        var deleted = await WithoutReceiptQuery(dto.From, dto.To, dto.IncludeRecurring).ExecuteDeleteAsync();
+        await tx.CommitAsync();
+        return deleted;
+    }
+
     /// <summary>
     /// Creates every occurrence whose date has arrived. Safe to call on each visit: it runs under a
     /// per-business lock, and each series moves its NextDate forward, so nothing is created twice.
