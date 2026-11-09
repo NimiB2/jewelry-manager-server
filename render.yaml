@@ -46,3 +46,5 @@ services:
         value: claude-haiku-5-5
       - key: InvoiceReader__Fallback__ApiKey
         sync: false
+      - key: RiseUp__ApiToken
+        sync: false

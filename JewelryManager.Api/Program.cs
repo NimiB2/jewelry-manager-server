@@ -13,6 +13,7 @@ using JewelryManager.Api.Features.Invoices;
 using JewelryManager.Api.Features.Orders;
 using JewelryManager.Api.Features.Pricing;
 using JewelryManager.Api.Features.Products;
+using JewelryManager.Api.Features.RiseUp;
 using JewelryManager.Api.Features.Settings;
 using JewelryManager.Api.Features.Statements;
 using JewelryManager.Api.Features.Shopify;
@@ -90,6 +91,12 @@ builder.Services.AddScoped<JewelryManager.Api.Features.Search.SearchService>();
 builder.Services.AddScoped<ExpensesService>();
 builder.Services.AddSingleton<IStatementFileParser, StatementFileParser>();
 builder.Services.AddScoped<StatementsService>();
+
+// RiseUp (personal finance data): read-only. The token is an env var, never in the repository.
+builder.Services.Configure<RiseUpOptions>(builder.Configuration.GetSection(RiseUpOptions.SectionName));
+builder.Services.AddHttpClient<IRiseUpClient, RiseUpClient>(client => client.Timeout = TimeSpan.FromSeconds(30));
+builder.Services.AddScoped<RiseUpSyncService>();
+builder.Services.AddHostedService<RiseUpDailySyncWorker>();
 builder.Services.AddScoped<IncomesService>();
 builder.Services.AddScoped<FinancesService>();
 builder.Services.AddScoped<FinanceAnalysisService>();
