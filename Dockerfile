@@ -3,9 +3,11 @@ WORKDIR /src
 
 # Restore first so the packages layer is cached until a csproj changes.
 COPY JewelryManager.Api/JewelryManager.Api.csproj JewelryManager.Api/
+COPY JewelryManager.Mcp/JewelryManager.Mcp.csproj JewelryManager.Mcp/
 RUN dotnet restore JewelryManager.Api/JewelryManager.Api.csproj
 
 COPY JewelryManager.Api/ JewelryManager.Api/
+COPY JewelryManager.Mcp/ JewelryManager.Mcp/
 RUN dotnet publish JewelryManager.Api/JewelryManager.Api.csproj -c Release -o /app --no-restore
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
