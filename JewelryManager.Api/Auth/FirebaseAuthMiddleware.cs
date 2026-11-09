@@ -31,6 +31,13 @@ public class FirebaseAuthMiddleware(RequestDelegate next)
             return;
         }
 
+        // The WhatsApp agent was already identified by AgentServiceAuthMiddleware.
+        if (userAccessor.HasUser())
+        {
+            await next(ctx);
+            return;
+        }
+
         // ── Step 1: Extract the bearer token ──────────────────────────────────
         var authHeader = ctx.Request.Headers.Authorization.ToString();
         if (!authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))

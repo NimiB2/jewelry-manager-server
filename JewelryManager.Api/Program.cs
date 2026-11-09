@@ -4,6 +4,7 @@ using JewelryManager.Api.Auth;
 using JewelryManager.Api.Common.Configuration;
 using JewelryManager.Api.Common.Filters;
 using JewelryManager.Api.Data;
+using JewelryManager.Api.Features.Agent;
 using JewelryManager.Api.Features.Collections;
 using JewelryManager.Api.Features.Expenses;
 using JewelryManager.Api.Features.Finances;
@@ -116,6 +117,10 @@ builder.Services.AddSingleton<IInvoiceStorage>(new LocalInvoiceStorage(invoicesP
 builder.Services.AddScoped<UsersService>();
 builder.Services.AddScoped<DbSeeder>();
 
+// The WhatsApp agent stays off until Agent:Enabled is true; see Features/Agent.
+builder.Services.AddWhatsAppAgent(builder.Configuration);
+builder.Configuration.GetSection(AgentOptions.SectionName).Get<AgentOptions>()?.ValidateAgentConfiguration();
+
 // ── CORS ──────────────────────────────────────────────────────────────────────
 // Allow the React client (running on a different port in dev) to call this API.
 var clientOrigin = builder.Configuration["Cors:ClientOrigin"]
@@ -140,6 +145,9 @@ if (app.Environment.IsDevelopment())
     app.UseHttpsRedirection();
 }
 app.UseCors();
+
+// The WhatsApp agent identifies itself with a shared key, before the Firebase login is even looked at.
+app.UseMiddleware<AgentServiceAuthMiddleware>();
 
 // FirebaseAuthMiddleware runs before any controller.
 // It verifies the Firebase token and resolves the DB user.

@@ -31,6 +31,9 @@ public class CurrentUserAccessor(IHttpContextAccessor httpContextAccessor)
             ?? throw new UnauthorizedException();
     }
 
+    /// <summary>True when an earlier middleware already resolved the user for this request.</summary>
+    public bool HasUser() => httpContextAccessor.HttpContext?.Items[UserKey] is User;
+
     /// <summary>Returns the businessId of the authenticated user.</summary>
     /// <exception cref="UnauthorizedException">If the user has no associated business.</exception>
     public Guid GetBusinessId()

@@ -40,10 +40,23 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<CardSettlementKeyword> CardSettlementKeywords => Set<CardSettlementKeyword>();
     public DbSet<StatementMonthClose> StatementMonthCloses => Set<StatementMonthClose>();
 
+    // The WhatsApp agent (tables are configured in AgentModelConfiguration).
+    public DbSet<AgentUser> AgentUsers => Set<AgentUser>();
+    public DbSet<AgentMessage> AgentMessages => Set<AgentMessage>();
+    public DbSet<AgentPendingAction> AgentPendingActions => Set<AgentPendingAction>();
+    public DbSet<AgentPreference> AgentPreferences => Set<AgentPreference>();
+    public DbSet<AgentAlias> AgentAliases => Set<AgentAlias>();
+    public DbSet<AgentUsage> AgentUsages => Set<AgentUsage>();
+    public DbSet<AgentAuditEntry> AgentAuditEntries => Set<AgentAuditEntry>();
+    public DbSet<AgentProcessedMessage> AgentProcessedMessages => Set<AgentProcessedMessage>();
+    public DbSet<AgentProactiveSent> AgentProactiveLog => Set<AgentProactiveSent>();
+
     // More DbSets will be added here as features are built.
 
     protected override void OnModelCreating(ModelBuilder b)
     {
+        AgentModelConfiguration.Configure(b);
+
         // ── Business ──────────────────────────────────────────────────────────
         b.Entity<Business>(e =>
         {
