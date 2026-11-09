@@ -29,6 +29,8 @@ public partial class AgentProcessor(
     UsageService usage,
     ProactiveLog proactiveLog,
     IInvoiceIntake invoices,
+    Coach.CoachButtonRouter coach,
+    Coach.IntroService intro,
     MessageRateLimiter limiter,
     CurrentUserAccessor tenant,
     IOptions<AgentOptions> options,
@@ -60,6 +62,10 @@ public partial class AgentProcessor(
             return;
         }
 
+        // She wrote: whatever the agent said to her on its own was seen, so the coach may speak again later.
+        await db.AgentUsers.Where(u => u.Id == user.Id).ExecuteUpdateAsync(
+            s => s.SetProperty(u => u.LastUserMessageAt, DateTime.UtcNow).SetProperty(u => u.CoachUnanswered, 0), ct);
+
         try { await whatsapp.MarkReadAsync(message.MessageId, ct); }
         catch (HttpRequestException) { /* the read mark is cosmetic */ }
 
@@ -79,6 +85,13 @@ public partial class AgentProcessor(
         }
 
         await SendAsync(user, reply, ct);
+
+        // The first week: a few short questions, one at a time, after her first message was answered.
+        if (user.IntroStep == 0 && message.Kind is IncomingKind.Text or IncomingKind.Audio)
+        {
+            await intro.SetStepAsync(user, 1, ct);
+            await SendAsync(user, Coach.IntroService.Question(user, 0), ct);
+        }
     }
 
     private Task<AgentReply> RouteAsync(AgentUser user, IncomingMessage message, CancellationToken ct) => message.Kind switch
@@ -92,6 +105,8 @@ public partial class AgentProcessor(
 
     private async Task<AgentReply> HandleButtonAsync(AgentUser user, string? buttonId, CancellationToken ct)
     {
+        if (buttonId is not null && await coach.HandleAsync(user, buttonId, ct) is { } coached) return coached;
+
         var parts = (buttonId ?? "").Split(':', 2);
         if (parts.Length == 2 && Guid.TryParse(parts[1], out var id) && parts[0] is "ok" or "no")
             return await DecideAsync(user, id, parts[0] == "ok", ct);
@@ -177,7 +192,9 @@ public partial class AgentProcessor(
 
     private async Task SendAsync(AgentUser user, AgentReply reply, CancellationToken ct)
     {
-        if (reply.PendingActionId is { } id)
+        if (reply.Buttons is { Count: > 0 })
+            await whatsapp.SendButtonsAsync(user.Phone, reply.Text, reply.Buttons, ct);
+        else if (reply.PendingActionId is { } id)
             await whatsapp.SendButtonsAsync(user.Phone, reply.Text,
                 [new ReplyButton($"ok:{id}", "אשר"), new ReplyButton($"no:{id}", "בטל")], ct);
         else

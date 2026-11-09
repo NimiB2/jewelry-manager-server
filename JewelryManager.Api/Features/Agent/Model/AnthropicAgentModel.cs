@@ -31,7 +31,7 @@ public class AnthropicAgentModel(IOptions<AgentOptions> options) : IAgentModel
             Model = _config.Name,
             MaxTokens = _config.MaxOutputTokens,
             System = system,
-            Tools = request.Tools.Select(ToTool).Select(t => (ToolUnion)t).ToList(),
+            Tools = request.Tools.Count == 0 ? null : request.Tools.Select(ToTool).Select(t => (ToolUnion)t).ToList(),
             Messages = request.Messages.Select(ToParam).ToList(),
             OutputConfig = new OutputConfig { Effort = ParseEffort(_config.Effort) },
         };

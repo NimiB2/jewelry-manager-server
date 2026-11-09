@@ -57,3 +57,27 @@ WhatsApp -> /webhooks/whatsapp -> inbox -> AgentProcessor -> AgentRunner -> Clau
 - The invoice photo is held in memory while its proposal waits for approval (10 minutes); after a restart the expense is saved without the file.
 - Voice and Hebrew quality depend on the transcription service you choose: test with real recordings before relying on it.
 - The WhatsApp 24-hour rule: the agent's own messages (morning summary...) outside the window need an approved template.
+
+## The coach (added 2026-11-09)
+
+Full design and the reasons: `docs/AGENT-COACHING-PLAN.md` (read it before changing anything here). Code: `JewelryManager.Api/Features/Agent/Coach/`, tools in `JewelryManager.Mcp/TaskTools.cs` and `AnalyticsTools.cs`, server side in `Features/Analytics` and `Features/Tasks`.
+
+What it does, in short:
+- **Tasks and the ladder:** her to-do list by voice; a task is reminded once, then offered a breakdown into small steps (the model words them, she approves with a button), then asked about once, then rests in "בצד". It is never dropped and never nagged. Anything she does to a task starts the ladder again.
+- **Nothing finished comes back:** every suggestion has a stable key in the ledger (`CoachItem`); done, declined, expired and parked items are never offered again, and the model is told what is closed. A daily check closes what she said she finished.
+- **Rhythm:** morning "what matters today" (3 lines at most), Friday review with next week's focus to choose, a quiet month-end sweep, monthly duties she defines, preparation for the occasions that matter to her (ranked from her own orders), a note about customers from a year ago.
+- **Attention budget:** one coaching message a day, three a week, none at night (21:00-08:00) or on her rest days, none within 3 hours of another message or after she wrote today, doubling gaps and a full pause after two unanswered ideas. Alerts and what she scheduled herself are not rationed. All of it is code (`AttentionGate`) with tests.
+- **First week:** four short questions (tone, emojis, rest days, which messages) after her first message; skippable.
+
+### Switching the coach on
+There is nothing extra to configure: it works with the agent. Each person turns it on by answering the first-week questions ("הכול") or by saying so; `set_notifications` has `morning_summary`, `weekly_review`, `ideas`, `store_orders`, `stuck_orders`.
+
+### Gold and silver index (off by default)
+| Variable | What |
+|---|---|
+| `Agent__Metals__Enabled` | `true` to switch on (needs the sources below, or the server refuses to start) |
+| `Agent__Metals__Sources__0__Name`, `__UrlTemplate` (with `{metal}`), `__ApiKeyHeader`, `__ApiKey`, `__PricePath`, `__Unit` | First price source, described as data. Add `__1__...` for the second: **two sources are required** |
+| `Agent__Metals__Fx__UrlTemplate`, `__RatePath`, `__ApiKeyHeader`, `__ApiKey` | Shekels per dollar |
+| `Agent__Metals__ShadowDays` (14), `GoldThresholdPercent` (4), `SilverThresholdPercent` (8), `AgreementPercent` (1.5), `Hour` (14) | Behavior |
+
+How it stays trustworthy: two sources must agree within 1.5% or the reading is discarded; an alert needs two days above the threshold; every reading is stored (`MetalPriceReading`); the baseline resets itself when she changes a price in the settings; the first two weeks only record. The agent never changes a setting. **Not yet verified against a real provider:** choose the services, put their URLs and keys in the variables, and watch the readings during the shadow period.

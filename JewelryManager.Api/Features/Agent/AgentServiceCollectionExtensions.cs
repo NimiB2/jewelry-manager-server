@@ -31,8 +31,24 @@ public static class AgentServiceCollectionExtensions
         services.AddSingleton<MessageRateLimiter>();
         services.AddSingleton<PendingMediaCache>();
 
+        services.AddScoped<Analytics.AnalyticsService>();
         services.AddScoped<Users.AgentUsersService>();
         services.AddScoped<AgentUserDirectory>();
+
+        // The coach: what she was told and what became of it, the rationing, and each kind of help.
+        services.AddSingleton<Coach.MetalSources>();
+        services.AddHttpClient(Coach.MetalSources.ClientName, client => client.Timeout = TimeSpan.FromSeconds(15));
+        services.AddScoped<Coach.CoachLedger>();
+        services.AddScoped<Coach.ProactiveOutbox>();
+        services.AddScoped<Coach.TaskCoach>();
+        services.AddScoped<Coach.BreakdownService>();
+        services.AddScoped<Coach.DoneReconciler>();
+        services.AddScoped<Coach.RhythmService>();
+        services.AddScoped<Coach.OccasionPlanner>();
+        services.AddScoped<Coach.AnniversaryCoach>();
+        services.AddScoped<Coach.IntroService>();
+        services.AddScoped<Coach.MetalIndexService>();
+        services.AddScoped<Coach.CoachButtonRouter>();
         services.AddScoped<ConversationStore>();
         services.AddScoped<PendingActionService>();
         services.AddScoped<AuditService>();
@@ -64,6 +80,9 @@ public static class AgentServiceCollectionExtensions
         if (string.IsNullOrWhiteSpace(options.WhatsApp.VerifyToken)) missing.Add("Agent:WhatsApp:VerifyToken");
         if (string.IsNullOrWhiteSpace(options.Model.ApiKey) && string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY")))
             missing.Add("Agent:Model:ApiKey or ANTHROPIC_API_KEY");
+
+        if (options.Metals.Enabled && (options.Metals.Sources.Count(s => !string.IsNullOrWhiteSpace(s.UrlTemplate)) < 2 || string.IsNullOrWhiteSpace(options.Metals.Fx.UrlTemplate)))
+            missing.Add("Agent:Metals needs at least two price sources and an exchange-rate source");
 
         if (missing.Count > 0)
             throw new InvalidOperationException("The WhatsApp agent is enabled but these settings are missing: " + string.Join(", ", missing));

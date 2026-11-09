@@ -34,6 +34,8 @@ public class AgentWiringTests
         services.AddDbContext<AppDbContext>(o => o.UseNpgsql("Host=localhost;Database=wiring-test"));
 
         // What the invoice flow needs from the rest of the application.
+        services.AddScoped<JewelryManager.Api.Features.Pricing.PricingService>();
+        services.AddScoped<JewelryManager.Api.Features.Products.ProductsService>();
         services.AddScoped<ExpensesService>();
         services.AddScoped<FinancesService>();
         services.AddScoped<InvoicesService>();
@@ -54,7 +56,9 @@ public class AgentWiringTests
         foreach (var type in new[]
         {
             typeof(AgentProcessor), typeof(AgentRunner), typeof(IInvoiceIntake), typeof(AgentUsersService),
-            typeof(LocalToolRunner), typeof(ToolExecutor),
+            typeof(LocalToolRunner), typeof(ToolExecutor), typeof(JewelryManager.Api.Features.Agent.Coach.CoachButtonRouter),
+            typeof(JewelryManager.Api.Features.Agent.Coach.TaskCoach), typeof(JewelryManager.Api.Features.Agent.Coach.RhythmService),
+            typeof(JewelryManager.Api.Features.Agent.Coach.MetalIndexService), typeof(JewelryManager.Api.Features.Analytics.AnalyticsService),
         })
             Assert.NotNull(scope.ServiceProvider.GetRequiredService(type));
 
@@ -81,6 +85,25 @@ public class AgentWiringTests
         var error = Assert.Throws<InvalidOperationException>(enabledWithoutSecrets.ValidateAgentConfiguration);
         Assert.Contains("Agent:ServiceKey", error.Message);
         Assert.Contains("Agent:WhatsApp:AppSecret", error.Message);
+    }
+
+    [Fact]
+    public void The_metal_index_needs_two_sources_and_an_exchange_rate_once_switched_on()
+    {
+        var options = new AgentOptions
+        {
+            Enabled = true,
+            ServiceKey = new string('k', 40),
+            WhatsApp = { PhoneNumberId = "1", AccessToken = "t", AppSecret = "s", VerifyToken = "v" },
+            Model = { ApiKey = "k" },
+            Metals = { Enabled = true, Sources = [new PriceSourceOptions { Name = "a", UrlTemplate = "https://a.test/{metal}" }] },
+        };
+
+        Assert.Contains("Agent:Metals", Assert.Throws<InvalidOperationException>(options.ValidateAgentConfiguration).Message);
+
+        options.Metals.Sources.Add(new PriceSourceOptions { Name = "b", UrlTemplate = "https://b.test/{metal}" });
+        options.Metals.Fx.UrlTemplate = "https://fx.test/usd";
+        options.ValidateAgentConfiguration();
     }
 
     [Fact]

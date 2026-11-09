@@ -31,7 +31,9 @@ public class AgentUserDirectory(AppDbContext db)
             case "morning_summary": user.MorningSummary = enabled; break;
             case "store_orders": user.StoreOrderAlerts = enabled; break;
             case "stuck_orders": user.StuckOrderAlerts = enabled; break;
-            default: throw new ArgumentException("kind must be morning_summary, store_orders or stuck_orders");
+            case "weekly_review": user.WeeklyReview = enabled; break;
+            case "ideas": user.CoachEnabled = enabled; break;
+            default: throw new ArgumentException("kind must be morning_summary, weekly_review, ideas, store_orders or stuck_orders");
         }
 
         await db.SaveChangesAsync(ct);
@@ -41,7 +43,11 @@ public class AgentUserDirectory(AppDbContext db)
 /// <summary>The short conversation memory: the last few final texts, nothing from tool results.</summary>
 public class ConversationStore(AppDbContext db, IOptions<AgentOptions> options)
 {
-    public async Task AddAsync(AgentUser user, string role, string text, CancellationToken ct = default)
+    public Task AddAsync(AgentUser user, string role, string text, CancellationToken ct = default) =>
+        AddAsync(user, role, text, "chat", ct);
+
+    /// <summary>Saves a line of the one timeline. source tells what it was: chat, or what the agent sent on its own.</summary>
+    public async Task AddAsync(AgentUser user, string role, string text, string source, CancellationToken ct = default)
     {
         db.AgentMessages.Add(new AgentMessage
         {
@@ -50,10 +56,16 @@ public class ConversationStore(AppDbContext db, IOptions<AgentOptions> options)
             AgentUserId = user.Id,
             Role = role,
             Text = text.Length > 4000 ? text[..4000] : text,
+            Source = source,
             CreatedAt = DateTime.UtcNow,
         });
         await db.SaveChangesAsync(ct);
     }
+
+    /// <summary>How many messages of this source the agent sent since the given time (the rationing reads the timeline).</summary>
+    public Task<int> CountSentAsync(AgentUser user, string source, DateTime sinceUtc, CancellationToken ct = default) =>
+        db.AgentMessages.AsNoTracking().CountAsync(m => m.BusinessId == user.BusinessId && m.AgentUserId == user.Id
+            && m.Role == "assistant" && m.Source == source && m.CreatedAt >= sinceUtc, ct);
 
     public async Task<List<ChatMessage>> RecentAsync(AgentUser user, CancellationToken ct = default)
     {
@@ -67,13 +79,19 @@ public class ConversationStore(AppDbContext db, IOptions<AgentOptions> options)
             .ToListAsync(ct);
         rows.Reverse();
 
-        // The model wants the conversation to start with the person.
+        // The model wants the conversation to start with the person. Anything the agent sent on its own before
+        // her first line is kept as a note, so her "כן" to a morning message still has its context.
         var firstUser = rows.FindIndex(m => m.Role == "user");
-        if (firstUser < 0) return [];
+        var leading = rows.Take(firstUser < 0 ? rows.Count : firstUser).Where(m => m.Role == "assistant").Select(m => m.Text).ToList();
+        var result = new List<ChatMessage>();
+        if (leading.Count > 0)
+            result.Add(ChatMessage.User("[הודעות שהסוכנת שלחה מיוזמתה לפני כן: " + string.Join(" | ", leading) + "]"));
 
-        return rows.Skip(firstUser)
-            .Select(m => m.Role == "assistant" ? ChatMessage.Assistant(m.Text) : ChatMessage.User(m.Text))
-            .ToList();
+        if (firstUser >= 0)
+            result.AddRange(rows.Skip(firstUser)
+                .Select(m => m.Role == "assistant" ? ChatMessage.Assistant(m.Text) : ChatMessage.User(m.Text)));
+
+        return result;
     }
 
     public async Task<int> PurgeAsync(CancellationToken ct = default)

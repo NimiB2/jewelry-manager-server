@@ -28,6 +28,12 @@ public static partial class AgentRouteGuard
         ("GET", Search()),
         ("POST", PricingCalculate()),
         ("GET", StatementMonth()),
+        ("GET", TasksRead()),
+        ("POST", TasksCreate()),
+        ("PUT", SingleTask()),
+        ("PATCH", TaskChange()),
+        ("GET", AnalyticsRead()),
+        ("POST", WhatIf()),
     ];
 
     public static bool IsAllowed(string method, string path)
@@ -75,4 +81,23 @@ public static partial class AgentRouteGuard
 
     [GeneratedRegex(@"^/statements/months/\d{4}-\d{2}$", RegexOptions.IgnoreCase)]
     private static partial Regex StatementMonth();
+
+    // Tasks: list, create (also in batch, and the batch undo), change a task. Never delete one.
+    [GeneratedRegex("^/tasks(/[0-9a-fA-F-]{36})?$", RegexOptions.IgnoreCase)]
+    private static partial Regex TasksRead();
+
+    [GeneratedRegex("^/tasks(/batch|/batch-delete)?$", RegexOptions.IgnoreCase)]
+    private static partial Regex TasksCreate();
+
+    [GeneratedRegex("^/tasks/[0-9a-fA-F-]{36}$", RegexOptions.IgnoreCase)]
+    private static partial Regex SingleTask();
+
+    [GeneratedRegex("^/tasks/[0-9a-fA-F-]{36}/(status|coach)$", RegexOptions.IgnoreCase)]
+    private static partial Regex TaskChange();
+
+    [GeneratedRegex("^/analytics/(sales|growth|sellers|anniversaries|materials|discount-ceiling)$", RegexOptions.IgnoreCase)]
+    private static partial Regex AnalyticsRead();
+
+    [GeneratedRegex("^/analytics/what-if$", RegexOptions.IgnoreCase)]
+    private static partial Regex WhatIf();
 }

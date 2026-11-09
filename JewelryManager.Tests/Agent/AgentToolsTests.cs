@@ -116,6 +116,16 @@ public class AgentToolsTests
     }
 
     [Fact]
+    public async Task The_whole_tool_list_stays_small_enough_to_send_with_every_request()
+    {
+        await using var session = await McpToolSession.StartAsync(new FakeBackendApi(), CancellationToken.None);
+        var size = session.Tools.Concat(LocalTools.Specs).Sum(t => t.Name.Length + t.Description.Length + t.InputSchema.GetRawText().Length);
+
+        // About 4 characters per token: the list is sent (and cached) on every request, so it must not grow without notice.
+        Assert.True(size < 25_000, $"The tool list is {size} characters");
+    }
+
+    [Fact]
     public async Task Confirm_tools_ask_the_model_for_a_summary()
     {
         await using var session = await McpToolSession.StartAsync(new FakeBackendApi(), CancellationToken.None);

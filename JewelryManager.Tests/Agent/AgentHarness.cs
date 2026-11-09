@@ -4,6 +4,7 @@ using JewelryManager.Api.Auth;
 using JewelryManager.Api.Data;
 using JewelryManager.Api.Data.Entities;
 using JewelryManager.Api.Features.Agent;
+using JewelryManager.Api.Features.Agent.Coach;
 using JewelryManager.Api.Features.Agent.Media;
 using JewelryManager.Api.Features.Agent.Mcp;
 using JewelryManager.Api.Features.Agent.Model;
@@ -134,18 +135,27 @@ public sealed class AgentHarness : IAsyncDisposable
     public AuditService Audit { get; private set; } = null!;
     public UsageService Usage { get; private set; } = null!;
     public ConversationStore Conversation { get; private set; } = null!;
+    public CoachLedger Ledger { get; private set; } = null!;
+    public ProactiveOutbox Outbox { get; private set; } = null!;
+    public RhythmService Rhythm { get; private set; } = null!;
+    public OccasionPlanner Occasions { get; private set; } = null!;
+    public MetalIndexService Metals { get; private set; } = null!;
+    public TaskCoach Tasks { get; private set; } = null!;
+    public AnniversaryCoach Anniversaries { get; private set; } = null!;
+    public IntroService Intro { get; private set; } = null!;
+    public DoneReconciler Reconciler { get; private set; } = null!;
 
     private AgentHarness(AppDbContext db) => Db = db;
 
-    public static async Task<AgentHarness> CreateAsync(PostgresFixture fixture, Action<AgentOptions>? tweak = null, Guid? businessId = null, string gender = "female")
+    public static async Task<AgentHarness> CreateAsync(PostgresFixture fixture, Action<AgentOptions>? tweak = null, Guid? businessId = null, string gender = "female", int introStep = 99)
     {
         var harness = new AgentHarness(fixture.NewDb());
         tweak?.Invoke(harness.Options);
-        await harness.SetUpAsync(businessId, gender);
+        await harness.SetUpAsync(businessId, gender, introStep);
         return harness;
     }
 
-    private async Task SetUpAsync(Guid? existingBusiness, string gender)
+    private async Task SetUpAsync(Guid? existingBusiness, string gender, int introStep)
     {
         var now = DateTime.UtcNow;
         var n = Interlocked.Increment(ref _counter);
@@ -173,6 +183,7 @@ public sealed class AgentHarness : IAsyncDisposable
             UserId = person.Id,
             Phone = "9725" + Random.Shared.NextInt64(10_000_000, 99_999_999),
             Gender = gender,
+            IntroStep = introStep,
             CreatedAt = now,
         };
         Db.AgentUsers.Add(User);
@@ -187,12 +198,25 @@ public sealed class AgentHarness : IAsyncDisposable
         var aliases = new AliasService(Db);
         var directory = new AgentUserDirectory(Db);
 
-        var executor = new ToolExecutor(Audit, NullLogger<ToolExecutor>.Instance);
-        var local = new LocalToolRunner(Preferences, aliases, Audit, directory, Apis, NullLogger<LocalToolRunner>.Instance);
+        Ledger = new CoachLedger(Db);
+        Outbox = new ProactiveOutbox(Db, WhatsApp, Conversation, Ledger, opts, NullLogger<ProactiveOutbox>.Instance);
+        Rhythm = new RhythmService(Db, Ledger, Outbox, Apis, opts, NullLogger<RhythmService>.Instance);
+        var breakdown = new BreakdownService(Model, Usage, Pending, Preferences, Ledger, NullLogger<BreakdownService>.Instance);
+        Occasions = new OccasionPlanner(Db, Ledger, Outbox, Apis, Model, Usage, Preferences, Pending, NullLogger<OccasionPlanner>.Instance);
+        var metalSources = new MetalSources(new FakeHttpFactory(), opts, NullLogger<MetalSources>.Instance);
+        Metals = new MetalIndexService(Db, metalSources, Apis, Outbox, new ProactiveLog(Db), WhatsApp, opts, NullLogger<MetalIndexService>.Instance);
+        Tasks = new TaskCoach(Ledger, Outbox, Apis, breakdown, Audit, NullLogger<TaskCoach>.Instance);
+        Anniversaries = new AnniversaryCoach(Ledger, Outbox, Apis, Model, Usage, Preferences, NullLogger<AnniversaryCoach>.Instance);
+        Intro = new IntroService(Db, Preferences);
+        Reconciler = new DoneReconciler(Db, Ledger, Model, Usage, NullLogger<DoneReconciler>.Instance);
+        var router = new CoachButtonRouter(Tasks, Occasions, Anniversaries, Metals, Rhythm, Intro);
 
-        Runner = new AgentRunner(Model, Tools, Conversation, Pending, Preferences, aliases, Usage, executor, local, opts, NullLogger<AgentRunner>.Instance);
+        var executor = new ToolExecutor(Audit, Ledger, NullLogger<ToolExecutor>.Instance);
+        var local = new LocalToolRunner(Db, Preferences, aliases, Audit, directory, Apis, Ledger, Rhythm, Occasions, Metals, NullLogger<LocalToolRunner>.Instance);
+
+        Runner = new AgentRunner(Model, Tools, Conversation, Pending, Preferences, aliases, Ledger, Usage, executor, local, opts, NullLogger<AgentRunner>.Instance);
         Processor = new AgentProcessor(Db, directory, WhatsApp, Transcriber, Runner, Pending, executor, Tools, local, Conversation, Usage,
-            new ProactiveLog(Db), new FakeInvoiceIntake(), new MessageRateLimiter(), PostgresFixture.TenantFor(businessId), opts, NullLogger<AgentProcessor>.Instance);
+            new ProactiveLog(Db), new FakeInvoiceIntake(), router, Intro, new MessageRateLimiter(), PostgresFixture.TenantFor(businessId), opts, NullLogger<AgentProcessor>.Instance);
     }
 
     public IncomingMessage Text(string text, string? id = null) =>
@@ -202,4 +226,24 @@ public sealed class AgentHarness : IAsyncDisposable
         new(Guid.NewGuid().ToString("N"), User.Phone, IncomingKind.ButtonReply, ButtonId: buttonId);
 
     public ValueTask DisposeAsync() => Db.DisposeAsync();
+}
+
+/// <summary>An HTTP factory whose clients answer from a table of URL parts, so the metal sources never touch the internet.</summary>
+public class FakeHttpFactory : IHttpClientFactory
+{
+    public Dictionary<string, string> Answers { get; } = [];
+
+    public HttpClient CreateClient(string name) => new(new Handler(Answers));
+
+    private sealed class Handler(Dictionary<string, string> answers) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var url = request.RequestUri!.ToString();
+            var match = answers.FirstOrDefault(a => url.Contains(a.Key));
+            return Task.FromResult(match.Key is null
+                ? new HttpResponseMessage(System.Net.HttpStatusCode.NotFound)
+                : new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent(match.Value) });
+        }
+    }
 }

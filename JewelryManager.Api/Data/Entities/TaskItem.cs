@@ -22,4 +22,19 @@ public class TaskItem
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
+
+    // A date she gave it. Moving it later counts as a postponement.
+    public DateOnly? DueDate { get; set; }
+
+    // A small step of a bigger task (from a breakdown); null for a normal task.
+    public Guid? ParentTaskId { get; set; }
+
+    // The agent leaves the task alone until this time.
+    public DateTime? SnoozedUntil { get; set; }
+
+    // How many times it was postponed.
+    public int DeferCount { get; set; }
+
+    // Set aside by her decision: never nagged, still listed on request.
+    public DateTime? ParkedAt { get; set; }
 }

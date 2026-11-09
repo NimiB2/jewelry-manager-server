@@ -39,10 +39,21 @@ public static class ToolPolicy
         ["get_product"] = ToolTier.Read,
         ["search"] = ToolTier.Read,
         ["statement_status"] = ToolTier.Read,
+        ["list_tasks"] = ToolTier.Read,
+        ["sales_by_period"] = ToolTier.Read,
+        ["growth_snapshot"] = ToolTier.Read,
+        ["best_and_slow_sellers"] = ToolTier.Read,
+        ["discount_ceiling"] = ToolTier.Read,
+        ["what_if_metal"] = ToolTier.Read,
 
         ["advance_stage"] = ToolTier.Immediate,
         ["mark_receipt_sent"] = ToolTier.Immediate,
         ["mark_customer_notified"] = ToolTier.Immediate,
+        ["add_task"] = ToolTier.Immediate,
+        ["complete_task"] = ToolTier.Immediate,
+        ["set_task_due"] = ToolTier.Immediate,
+        ["park_task"] = ToolTier.Immediate,
+        ["unpark_task"] = ToolTier.Immediate,
 
         ["set_stage"] = ToolTier.Confirm,
         ["set_status"] = ToolTier.Confirm,
@@ -53,6 +64,8 @@ public static class ToolPolicy
         ["update_order"] = ToolTier.Confirm,
         ["add_expense"] = ToolTier.Confirm,
         ["update_expense"] = ToolTier.Confirm,
+        ["break_down_task"] = ToolTier.Confirm,
+        ["add_tasks"] = ToolTier.Confirm,
 
         [LocalTools.SavePreference] = ToolTier.Local,
         [LocalTools.ListPreferences] = ToolTier.Local,
@@ -61,6 +74,17 @@ public static class ToolPolicy
         [LocalTools.DeleteAlias] = ToolTier.Local,
         [LocalTools.UndoLast] = ToolTier.Local,
         [LocalTools.SetNotifications] = ToolTier.Local,
+        [LocalTools.MarkItemDone] = ToolTier.Local,
+        [LocalTools.MuteTopic] = ToolTier.Local,
+        [LocalTools.UnmuteTopic] = ToolTier.Local,
+        [LocalTools.SetOccasion] = ToolTier.Local,
+        [LocalTools.SetRestDays] = ToolTier.Local,
+        [LocalTools.AddObligation] = ToolTier.Local,
+        [LocalTools.ListObligations] = ToolTier.Local,
+        [LocalTools.RemoveObligation] = ToolTier.Local,
+        [LocalTools.SetFocus] = ToolTier.Local,
+        [LocalTools.MapMaterial] = ToolTier.Local,
+        [LocalTools.ListCoachState] = ToolTier.Local,
     };
 
     public static bool IsKnown(string name) => Tiers.ContainsKey(name);

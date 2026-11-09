@@ -1,5 +1,6 @@
 using System.Text.Json;
 using JewelryManager.Api.Data.Entities;
+using JewelryManager.Api.Features.Agent.Coach;
 using JewelryManager.Api.Features.Agent.Mcp;
 using JewelryManager.Api.Features.Agent.Model;
 using JewelryManager.Api.Features.Agent.Services;
@@ -8,7 +9,7 @@ using Microsoft.Extensions.Options;
 namespace JewelryManager.Api.Features.Agent;
 
 /// <summary>What goes back to the person. A pending id means "show approve / cancel buttons under the text".</summary>
-public record AgentReply(string Text, Guid? PendingActionId = null);
+public record AgentReply(string Text, Guid? PendingActionId = null, IReadOnlyList<WhatsApp.ReplyButton>? Buttons = null);
 
 /// <summary>
 /// One conversation turn: loads who the person is and what the agent remembers, lets the model ask for tools
@@ -22,6 +23,7 @@ public class AgentRunner(
     PendingActionService pending,
     PreferenceService preferences,
     AliasService aliases,
+    CoachLedger ledger,
     UsageService usage,
     ToolExecutor tools,
     LocalToolRunner localTools,
@@ -36,7 +38,8 @@ public class AgentRunner(
         var text = userText.Length > limits.MaxInputChars ? userText[..limits.MaxInputChars] : userText;
 
         var history = await conversation.RecentAsync(user, ct);
-        var personal = PersonalContext.Render(user, await preferences.ListAsync(user, ct), await aliases.ListAsync(user, ct));
+        var personal = PersonalContext.Render(user, await preferences.ListAsync(user, ct), await aliases.ListAsync(user, ct),
+            await ledger.OpenItemsAsync(user, 5, ct), await ledger.GetFocusAsync(user, ct), await ledger.ClosedTitlesAsync(user, 30, ct));
 
         var messages = new List<ChatMessage>(history) { ChatMessage.User(text) };
         await using var session = await sessions.StartAsync(user.Id, ct);

@@ -1,17 +1,20 @@
 using System.Globalization;
 using System.Text.Json;
 using JewelryManager.Api.Data.Entities;
+using JewelryManager.Api.Features.Agent.Coach;
 using JewelryManager.Api.Features.Agent.Mcp;
 using JewelryManager.Api.Features.Agent.Services;
-using JewelryManager.Api.Features.Agent.WhatsApp;
 using JewelryManager.Mcp;
 using Microsoft.Extensions.Options;
 
 namespace JewelryManager.Api.Features.Agent.Proactive;
 
 /// <summary>
-/// The agent's own messages: a morning summary, a new store order waiting, an order open too long. Each is off
-/// until the person turns it on, each is sent at most once, and the daily cleanup of old data runs here too.
+/// The agent's own round, every five minutes, for each whitelisted person: real alerts (a store order waiting,
+/// an order open too long), then the rhythm she asked for (morning, Friday, month end), then the coach's ideas.
+/// Everything speaks through the outbox, so the attention rules apply, and every item through the ledger,
+/// so nothing finished or refused is raised again. The daily upkeep (metal index, closing what she finished,
+/// removing old data) runs here too.
 /// </summary>
 public class ProactiveWorker(IServiceScopeFactory scopes, IOptions<AgentOptions> options, ILogger<ProactiveWorker> log) : BackgroundService
 {
@@ -27,8 +30,7 @@ public class ProactiveWorker(IServiceScopeFactory scopes, IOptions<AgentOptions>
         {
             try
             {
-                using var scope = scopes.CreateScope();
-                await RunRoundAsync(scope.ServiceProvider, stoppingToken);
+                await RunRoundAsync(stoppingToken);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -38,115 +40,106 @@ public class ProactiveWorker(IServiceScopeFactory scopes, IOptions<AgentOptions>
         while (await timer.WaitForNextTickAsync(stoppingToken));
     }
 
-    private async Task RunRoundAsync(IServiceProvider services, CancellationToken ct)
+    public async Task RunRoundAsync(CancellationToken ct)
     {
-        var directory = services.GetRequiredService<AgentUserDirectory>();
-        var apis = services.GetRequiredService<IBackendApiFactory>();
-        var sent = services.GetRequiredService<ProactiveLog>();
-        var whatsapp = services.GetRequiredService<IWhatsAppClient>();
+        List<AgentUser> users;
+        using (var scope = scopes.CreateScope())
+            users = await scope.ServiceProvider.GetRequiredService<AgentUserDirectory>().ListActiveAsync(ct);
 
-        foreach (var user in await directory.ListActiveAsync(ct))
+        foreach (var user in users)
         {
-            var api = apis.CreateFor(user.Id);
-
-            if (user.MorningSummary && AgentClock.LocalNow().Hour >= options.Value.Proactive.MorningHour)
-                await SendOnceAsync(whatsapp, sent, user, "morning", AgentClock.LocalToday().ToString("yyyy-MM-dd"),
-                    () => BuildMorningAsync(api, user, ct), options.Value.Proactive.MorningTemplate, ct);
-
-            if (user.StoreOrderAlerts)
-                foreach (var (number, customer) in await PendingStoreOrdersAsync(api, ct))
-                    await SendOnceAsync(whatsapp, sent, user, "store_order", number.ToString(CultureInfo.InvariantCulture),
-                        () => Task.FromResult<string?>(ProactiveMessages.StoreOrder(number, customer)), options.Value.Proactive.StoreOrderTemplate, ct);
-
-            if (user.StuckOrderAlerts)
-                foreach (var (number, customer, days) in await StuckOrdersAsync(api, ct))
-                {
-                    // One reminder per order per StuckDays period, not a message every round.
-                    var bucket = AgentClock.LocalToday().DayNumber / Math.Max(1, options.Value.Proactive.StuckDays);
-                    await SendOnceAsync(whatsapp, sent, user, "stuck_order", $"{number}:{bucket}",
-                        () => Task.FromResult<string?>(ProactiveMessages.StuckOrder(number, customer, days)), options.Value.Proactive.StuckOrderTemplate, ct);
-                }
+            // One scope per person, so a problem with one never disturbs another.
+            try
+            {
+                using var scope = scopes.CreateScope();
+                await RunForUserAsync(scope.ServiceProvider, user, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                log.LogError(ex, "The round failed for one person");
+            }
         }
-
-        await CleanupOncePerDayAsync(services, ct);
-    }
-
-    private async Task SendOnceAsync(IWhatsAppClient whatsapp, ProactiveLog sent, AgentUser user, string kind, string key,
-        Func<Task<string?>> build, string? template, CancellationToken ct)
-    {
-        if (!await sent.TryClaimAsync(user.Id, kind, key, ct)) return;
 
         try
         {
-            var text = await build();
-            if (text is null)
-            {
-                await sent.ReleaseAsync(user.Id, kind, key, ct);
-                return;
-            }
-
-            try
-            {
-                await whatsapp.SendTextAsync(user.Phone, text, ct);
-            }
-            catch (HttpRequestException) when (!string.IsNullOrWhiteSpace(template))
-            {
-                // Outside the 24-hour window only an approved template may be sent.
-                await whatsapp.SendTemplateAsync(user.Phone, template, options.Value.Proactive.TemplateLanguage, [text], ct);
-            }
+            using var scope = scopes.CreateScope();
+            await scope.ServiceProvider.GetRequiredService<MetalIndexService>().RunDailyAsync(users, ct);
+            await CleanupOncePerDayAsync(scope.ServiceProvider, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            log.LogWarning(ex, "Proactive {Kind} message could not be sent; it will be tried again", kind);
-            await sent.ReleaseAsync(user.Id, kind, key, ct);
+            log.LogError(ex, "The daily upkeep failed");
         }
     }
 
-    private static async Task<string?> BuildMorningAsync(IBackendApi api, AgentUser user, CancellationToken ct)
+    private async Task RunForUserAsync(IServiceProvider services, AgentUser user, CancellationToken ct)
     {
-        var attention = await api.GetAsync("/orders/attention", ct);
-        var active = await api.GetAsync("/orders?status=active", ct);
-        var yesterday = AgentClock.LocalToday().AddDays(-1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-        var money = await api.GetAsync($"/finances?from={yesterday}&to={yesterday}", ct);
+        var apis = services.GetRequiredService<IBackendApiFactory>();
+        var rhythm = services.GetRequiredService<RhythmService>();
 
-        var summary = money.TryGetProperty("summary", out var s) ? s : default;
-        return ProactiveMessages.Morning(
-            user.Gender,
-            Int(attention, "pending"), Int(attention, "alerts"), Int(attention, "messagesToSend"),
-            active.TryGetProperty("summary", out var a) ? Int(a, "count") : 0,
-            Dec(summary, "totalIncome"), Dec(summary, "totalExpenses"));
+        if (user.StoreOrderAlerts) await StoreOrderAlertsAsync(services, user, apis.CreateFor(user.Id), ct);
+        if (user.StuckOrderAlerts) await StuckOrderAlertsAsync(services, user, apis.CreateFor(user.Id), ct);
+
+        await rhythm.ObligationsAsync(user, ct);
+        await rhythm.MorningAsync(user, ct);
+        await rhythm.FridayAsync(user, ct);
+        await services.GetRequiredService<TaskCoach>().RunAsync(user, ct);
+        await rhythm.MonthEndAsync(user, ct);
+        await services.GetRequiredService<OccasionPlanner>().RunAsync(user, ct);
+        await services.GetRequiredService<AnniversaryCoach>().RunAsync(user, ct);
+
+        // Late in the day, close what she told the agent she finished.
+        if (AgentClock.LocalNow().Hour >= 20)
+            await services.GetRequiredService<DoneReconciler>().RunAsync(user, ct);
     }
 
-    private static async Task<List<(int Number, string? Customer)>> PendingStoreOrdersAsync(IBackendApi api, CancellationToken ct)
+    private async Task StoreOrderAlertsAsync(IServiceProvider services, AgentUser user, IBackendApi api, CancellationToken ct)
     {
+        var sent = services.GetRequiredService<ProactiveLog>();
+        var outbox = services.GetRequiredService<ProactiveOutbox>();
+
         var pending = await api.GetAsync("/orders/pending", ct);
-        return pending.ValueKind != JsonValueKind.Array
-            ? []
-            : pending.EnumerateArray().Where(o => o.TryGetProperty("number", out _))
-                .Select(o => (o.GetProperty("number").GetInt32(), Text(o, "customer") ?? Text(o, "externalName"))).ToList();
+        if (pending.ValueKind != JsonValueKind.Array) return;
+
+        foreach (var order in pending.EnumerateArray().Where(o => o.TryGetProperty("number", out _)))
+        {
+            var number = order.GetProperty("number").GetInt32();
+            var key = number.ToString(CultureInfo.InvariantCulture);
+            if (!await sent.TryClaimAsync(user.Id, "store_order", key, ct)) continue;
+
+            var customer = Text(order, "customer") ?? Text(order, "externalName");
+            if (!await outbox.SendAsync(user, ProactiveMessages.StoreOrder(number, customer), MessageClass.Alert, "store_order",
+                    null, ct, options.Value.Proactive.StoreOrderTemplate))
+                await sent.ReleaseAsync(user.Id, "store_order", key, ct);
+        }
     }
 
-    private async Task<List<(int Number, string? Customer, int Days)>> StuckOrdersAsync(IBackendApi api, CancellationToken ct)
+    private async Task StuckOrderAlertsAsync(IServiceProvider services, AgentUser user, IBackendApi api, CancellationToken ct)
     {
+        var sent = services.GetRequiredService<ProactiveLog>();
+        var outbox = services.GetRequiredService<ProactiveOutbox>();
+
         var data = await api.GetAsync("/orders?status=active", ct);
+        if (!data.TryGetProperty("orders", out var orders)) return;
+
         var limit = options.Value.Proactive.StuckDays;
         var today = AgentClock.LocalToday();
-        var result = new List<(int, string?, int)>();
-
-        if (data.TryGetProperty("orders", out var orders))
+        foreach (var order in orders.EnumerateArray())
         {
-            foreach (var order in orders.EnumerateArray())
-            {
-                if (order.TryGetProperty("isPendingApproval", out var pending) && pending.ValueKind == JsonValueKind.True) continue;
-                if (!DateOnly.TryParse(Text(order, "date"), CultureInfo.InvariantCulture, out var date)) continue;
+            if (order.TryGetProperty("isPendingApproval", out var waiting) && waiting.ValueKind == JsonValueKind.True) continue;
+            if (!DateOnly.TryParse(Text(order, "date"), CultureInfo.InvariantCulture, out var date) || !order.TryGetProperty("number", out var n)) continue;
 
-                var days = today.DayNumber - date.DayNumber;
-                if (days >= limit && order.TryGetProperty("number", out var n))
-                    result.Add((n.GetInt32(), Text(order, "customer"), days));
-            }
+            var days = today.DayNumber - date.DayNumber;
+            if (days < limit) continue;
+
+            // One reminder per order per StuckDays period, not a message every round.
+            var key = $"{n.GetInt32()}:{today.DayNumber / Math.Max(1, limit)}";
+            if (!await sent.TryClaimAsync(user.Id, "stuck_order", key, ct)) continue;
+
+            if (!await outbox.SendAsync(user, ProactiveMessages.StuckOrder(n.GetInt32(), Text(order, "customer"), days), MessageClass.Alert, "stuck_order",
+                    null, ct, options.Value.Proactive.StuckOrderTemplate))
+                await sent.ReleaseAsync(user.Id, "stuck_order", key, ct);
         }
-
-        return result;
     }
 
     private async Task CleanupOncePerDayAsync(IServiceProvider services, CancellationToken ct)
@@ -157,14 +150,9 @@ public class ProactiveWorker(IServiceScopeFactory scopes, IOptions<AgentOptions>
 
         await services.GetRequiredService<ConversationStore>().PurgeAsync(ct);
         await services.GetRequiredService<AuditService>().PurgeAsync(ct);
+        await services.GetRequiredService<CoachLedger>().ExpireStaleIdeasAsync(ct);
     }
 
     private static string? Text(JsonElement e, string name) =>
         e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
-
-    private static int Int(JsonElement e, string name) =>
-        e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var v) && v.TryGetInt32(out var i) ? i : 0;
-
-    private static decimal? Dec(JsonElement e, string name) =>
-        e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var v) && v.TryGetDecimal(out var d) ? d : null;
 }

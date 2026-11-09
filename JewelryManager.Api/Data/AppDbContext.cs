@@ -50,6 +50,13 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<AgentAuditEntry> AgentAuditEntries => Set<AgentAuditEntry>();
     public DbSet<AgentProcessedMessage> AgentProcessedMessages => Set<AgentProcessedMessage>();
     public DbSet<AgentProactiveSent> AgentProactiveLog => Set<AgentProactiveSent>();
+    public DbSet<CoachItem> CoachItems => Set<CoachItem>();
+    public DbSet<CoachFocus> CoachFocuses => Set<CoachFocus>();
+    public DbSet<CoachOccasion> CoachOccasions => Set<CoachOccasion>();
+    public DbSet<RecurringObligation> RecurringObligations => Set<RecurringObligation>();
+    public DbSet<MetalMapping> MetalMappings => Set<MetalMapping>();
+    public DbSet<MetalPriceReading> MetalPriceReadings => Set<MetalPriceReading>();
+    public DbSet<TaskChange> TaskChanges => Set<TaskChange>();
 
     // More DbSets will be added here as features are built.
 

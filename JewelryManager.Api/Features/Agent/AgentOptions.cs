@@ -22,6 +22,7 @@ public class AgentOptions
     public TranscriptionOptions Transcription { get; set; } = new();
     public LimitOptions Limits { get; set; } = new();
     public ProactiveOptions Proactive { get; set; } = new();
+    public MetalsOptions Metals { get; set; } = new();
 }
 
 public class ModelOptions
@@ -81,4 +82,54 @@ public class ProactiveOptions
     public string? StoreOrderTemplate { get; set; }
     public string? StuckOrderTemplate { get; set; }
     public string TemplateLanguage { get; set; } = "he";
+}
+
+/// <summary>
+/// The daily gold and silver index (off until switched on and at least two price sources are configured).
+/// Sources are described as data (a URL, a key, where the number is in the answer), so a provider can be
+/// chosen or replaced without changing code.
+/// </summary>
+public class MetalsOptions
+{
+    public bool Enabled { get; set; }
+
+    // For the first days the index only records; no message is sent while the owner compares it with her supplier.
+    public int ShadowDays { get; set; } = 14;
+
+    public int Hour { get; set; } = 14;
+    public decimal GoldThresholdPercent { get; set; } = 4;
+    public decimal SilverThresholdPercent { get; set; } = 8;
+
+    // Two sources must agree within this percentage, or the reading is thrown away.
+    public decimal AgreementPercent { get; set; } = 1.5m;
+
+    public List<PriceSourceOptions> Sources { get; set; } = [];
+    public FxSourceOptions Fx { get; set; } = new();
+}
+
+public class PriceSourceOptions
+{
+    public string Name { get; set; } = "";
+
+    // May contain {metal}, replaced by the code for that metal below.
+    public string UrlTemplate { get; set; } = "";
+    public string? ApiKeyHeader { get; set; }
+    public string? ApiKey { get; set; }
+
+    // Where the price is in the JSON answer, e.g. "price" or "data.rates.0.price".
+    public string PricePath { get; set; } = "price";
+
+    // usd_per_ounce or usd_per_gram.
+    public string Unit { get; set; } = "usd_per_ounce";
+    public Dictionary<string, string> MetalCodes { get; set; } = new() { ["gold"] = "XAU", ["silver"] = "XAG" };
+}
+
+public class FxSourceOptions
+{
+    public string UrlTemplate { get; set; } = "";
+    public string? ApiKeyHeader { get; set; }
+    public string? ApiKey { get; set; }
+
+    // Where the shekels-per-dollar rate is in the answer.
+    public string RatePath { get; set; } = "rate";
 }

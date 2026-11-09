@@ -26,6 +26,27 @@ public class AgentUser
     public bool StoreOrderAlerts { get; set; }
     public bool StuckOrderAlerts { get; set; }
 
+    // The Friday review, and the agent's own ideas and reminders (tasks, occasions, focus, customers). Off until she says yes.
+    public bool WeeklyReview { get; set; }
+    public bool CoachEnabled { get; set; }
+
+    // The coach is on by default; "פחות הודעות" halves its budget.
+    public bool FewerMessages { get; set; }
+
+    // none, saturday or friday_saturday: no proactive message on her rest days.
+    public string RestDays { get; set; } = "none";
+
+    // When she last wrote, and when the agent last wrote to her on its own.
+    public DateTime? LastUserMessageAt { get; set; }
+    public DateTime? LastOutboundAt { get; set; }
+
+    // Coaching messages sent since she last wrote; at 2 all coaching pauses until she writes.
+    public int CoachUnanswered { get; set; }
+    public DateTime? LastCoachAt { get; set; }
+
+    // The gentle introduction: 0 not started ... 4 finished or skipped.
+    public int IntroStep { get; set; }
+
     public DateTime CreatedAt { get; set; }
 }
 
@@ -39,6 +60,9 @@ public class AgentMessage
     // "user" or "assistant".
     public string Role { get; set; } = "user";
     public string Text { get; set; } = string.Empty;
+
+    // chat for ordinary talk; morning, review, alert, reminder, coach... for what the agent sent on its own.
+    public string Source { get; set; } = "chat";
     public DateTime CreatedAt { get; set; }
 }
 

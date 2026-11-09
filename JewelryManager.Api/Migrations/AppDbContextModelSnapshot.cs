@@ -116,6 +116,13 @@ namespace JewelryManager.Api.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("chat");
+
                     b.Property<string>("Text")
                         .IsRequired()
                         .HasMaxLength(4000)
@@ -308,19 +315,40 @@ namespace JewelryManager.Api.Migrations
                     b.Property<Guid>("BusinessId")
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("CoachEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("CoachUnanswered")
+                        .HasColumnType("integer");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("FewerMessages")
+                        .HasColumnType("boolean");
 
                     b.Property<string>("Gender")
                         .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
+                    b.Property<int>("IntroStep")
+                        .HasColumnType("integer");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
                     b.Property<bool>("IsDeveloper")
                         .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("LastCoachAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LastOutboundAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LastUserMessageAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<bool>("MorningSummary")
                         .HasColumnType("boolean");
@@ -330,6 +358,13 @@ namespace JewelryManager.Api.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
+                    b.Property<string>("RestDays")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("none");
+
                     b.Property<bool>("StoreOrderAlerts")
                         .HasColumnType("boolean");
 
@@ -338,6 +373,9 @@ namespace JewelryManager.Api.Migrations
 
                     b.Property<Guid>("UserId")
                         .HasColumnType("uuid");
+
+                    b.Property<bool>("WeeklyReview")
+                        .HasColumnType("boolean");
 
                     b.HasKey("Id");
 
@@ -398,6 +436,131 @@ namespace JewelryManager.Api.Migrations
                         .IsUnique();
 
                     b.ToTable("CardSettlementKeywords");
+                });
+
+            modelBuilder.Entity("JewelryManager.Api.Data.Entities.CoachFocus", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Area")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<Guid>("BusinessId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("FirstStep")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BusinessId")
+                        .IsUnique();
+
+                    b.ToTable("CoachFocuses");
+                });
+
+            modelBuilder.Entity("JewelryManager.Api.Data.Entities.CoachItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("BusinessId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<DateTime?>("LastMentionedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("MentionCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("ResolvedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("SnoozedUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Stage")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid?>("TaskId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BusinessId", "Key")
+                        .IsUnique();
+
+                    b.HasIndex("BusinessId", "State");
+
+                    b.ToTable("CoachItems");
+                });
+
+            modelBuilder.Entity("JewelryManager.Api.Data.Entities.CoachOccasion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("BusinessId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BusinessId", "Code")
+                        .IsUnique();
+
+                    b.ToTable("CoachOccasions");
                 });
 
             modelBuilder.Entity("JewelryManager.Api.Data.Entities.Collection", b =>
@@ -740,6 +903,103 @@ namespace JewelryManager.Api.Migrations
                         .IsUnique();
 
                     b.ToTable("Materials");
+                });
+
+            modelBuilder.Entity("JewelryManager.Api.Data.Entities.MetalMapping", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateOnly?>("AlertedOn")
+                        .HasColumnType("date");
+
+                    b.Property<DateTime>("BaselineAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<decimal>("BaselineSpotIlsPerGram")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<Guid>("BusinessId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateOnly?>("FirstCrossedOn")
+                        .HasColumnType("date");
+
+                    b.Property<decimal>("ImpliedPremium")
+                        .HasPrecision(10, 4)
+                        .HasColumnType("numeric(10,4)");
+
+                    b.Property<decimal>("LastSettingsPrice")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<string>("MaterialName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Metal")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<decimal>("Purity")
+                        .HasPrecision(6, 4)
+                        .HasColumnType("numeric(6,4)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BusinessId", "MaterialName")
+                        .IsUnique();
+
+                    b.ToTable("MetalMappings");
+                });
+
+            modelBuilder.Entity("JewelryManager.Api.Data.Entities.MetalPriceReading", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("Accepted")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime>("At")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<decimal>("IlsPerGram")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<string>("Metal")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<decimal>("UsdIls")
+                        .HasPrecision(10, 4)
+                        .HasColumnType("numeric(10,4)");
+
+                    b.Property<decimal>("UsdPerOunce")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Metal", "At");
+
+                    b.ToTable("MetalPriceReadings");
                 });
 
             modelBuilder.Entity("JewelryManager.Api.Data.Entities.Order", b =>
@@ -1206,6 +1466,37 @@ namespace JewelryManager.Api.Migrations
                     b.ToTable("RecurringExpenses");
                 });
 
+            modelBuilder.Entity("JewelryManager.Api.Data.Entities.RecurringObligation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("BusinessId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("DayOfMonth")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("LastCreatedMonth")
+                        .HasMaxLength(7)
+                        .HasColumnType("character varying(7)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BusinessId");
+
+                    b.ToTable("RecurringObligations");
+                });
+
             modelBuilder.Entity("JewelryManager.Api.Data.Entities.Settings", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1409,6 +1700,46 @@ namespace JewelryManager.Api.Migrations
                     b.ToTable("TaskCategories");
                 });
 
+            modelBuilder.Entity("JewelryManager.Api.Data.Entities.TaskChange", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("At")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("BusinessId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Field")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("NewValue")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("OldValue")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("TaskId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BusinessId", "TaskId", "At");
+
+                    b.ToTable("TaskChanges");
+                });
+
             modelBuilder.Entity("JewelryManager.Api.Data.Entities.TaskItem", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1432,11 +1763,26 @@ namespace JewelryManager.Api.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<int>("DeferCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateOnly?>("DueDate")
+                        .HasColumnType("date");
+
                     b.Property<bool>("IsAutomatic")
                         .HasColumnType("boolean");
 
                     b.Property<Guid?>("OrderId")
                         .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ParentTaskId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("ParkedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("SnoozedUntil")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -1453,6 +1799,8 @@ namespace JewelryManager.Api.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("OrderId");
+
+                    b.HasIndex("ParentTaskId");
 
                     b.HasIndex("BusinessId", "Status");
 
@@ -1588,6 +1936,33 @@ namespace JewelryManager.Api.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("JewelryManager.Api.Data.Entities.CoachFocus", b =>
+                {
+                    b.HasOne("JewelryManager.Api.Data.Entities.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("JewelryManager.Api.Data.Entities.CoachItem", b =>
+                {
+                    b.HasOne("JewelryManager.Api.Data.Entities.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("JewelryManager.Api.Data.Entities.CoachOccasion", b =>
+                {
+                    b.HasOne("JewelryManager.Api.Data.Entities.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("JewelryManager.Api.Data.Entities.Collection", b =>
                 {
                     b.HasOne("JewelryManager.Api.Data.Entities.Business", "Business")
@@ -1678,6 +2053,15 @@ namespace JewelryManager.Api.Migrations
                 });
 
             modelBuilder.Entity("JewelryManager.Api.Data.Entities.Material", b =>
+                {
+                    b.HasOne("JewelryManager.Api.Data.Entities.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("JewelryManager.Api.Data.Entities.MetalMapping", b =>
                 {
                     b.HasOne("JewelryManager.Api.Data.Entities.Business", null)
                         .WithMany()
@@ -1821,6 +2205,15 @@ namespace JewelryManager.Api.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("JewelryManager.Api.Data.Entities.RecurringObligation", b =>
+                {
+                    b.HasOne("JewelryManager.Api.Data.Entities.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("JewelryManager.Api.Data.Entities.Settings", b =>
                 {
                     b.HasOne("JewelryManager.Api.Data.Entities.Business", "Business")
@@ -1884,6 +2277,15 @@ namespace JewelryManager.Api.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("JewelryManager.Api.Data.Entities.TaskChange", b =>
+                {
+                    b.HasOne("JewelryManager.Api.Data.Entities.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("JewelryManager.Api.Data.Entities.TaskItem", b =>
                 {
                     b.HasOne("JewelryManager.Api.Data.Entities.Business", null)
@@ -1895,6 +2297,11 @@ namespace JewelryManager.Api.Migrations
                     b.HasOne("JewelryManager.Api.Data.Entities.Order", null)
                         .WithMany()
                         .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("JewelryManager.Api.Data.Entities.TaskItem", null)
+                        .WithMany()
+                        .HasForeignKey("ParentTaskId")
                         .OnDelete(DeleteBehavior.SetNull);
                 });
 

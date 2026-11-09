@@ -156,7 +156,8 @@ public class AliasService(AppDbContext db)
 /// <summary>Builds the per-person part of the prompt from the saved preferences and nicknames.</summary>
 public static class PersonalContext
 {
-    public static string Render(AgentUser user, IReadOnlyList<AgentPreference> preferences, IReadOnlyList<AgentAlias> aliases)
+    public static string Render(AgentUser user, IReadOnlyList<AgentPreference> preferences, IReadOnlyList<AgentAlias> aliases,
+        IReadOnlyList<CoachItem>? openItems = null, CoachFocus? focus = null, IReadOnlyList<string>? closedTitles = null)
     {
         var text = new StringBuilder();
         text.AppendLine($"Person: gender={user.Gender}. Today in Israel: {AgentClock.LocalToday():yyyy-MM-dd}.");
@@ -171,6 +172,12 @@ public static class PersonalContext
         {
             text.AppendLine("Nicknames: " + string.Join("; ", aliases.Select(a => $"{a.Nickname} = {a.FullName}")));
         }
+
+        if (focus is not null) text.AppendLine($"Current focus of the business: {focus.Area} ({focus.FirstStep}).");
+        if (openItems is { Count: > 0 })
+            text.AppendLine("Open suggestions (if she says she did one, mark it done): " + string.Join("; ", openItems.Select(i => i.Title)));
+        if (closedTitles is { Count: > 0 })
+            text.AppendLine("Already finished or refused in the last 30 days, never suggest again: " + string.Join("; ", closedTitles.Take(10)));
 
         return text.ToString().TrimEnd();
     }

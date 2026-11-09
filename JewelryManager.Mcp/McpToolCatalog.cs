@@ -6,7 +6,7 @@ namespace JewelryManager.Mcp;
 /// <summary>Builds the business tools bound to one caller's API connection.</summary>
 public static class McpToolCatalog
 {
-    private static readonly Type[] ToolTypes = [typeof(OrderTools), typeof(FinanceTools), typeof(CatalogTools)];
+    private static readonly Type[] ToolTypes = [typeof(OrderTools), typeof(FinanceTools), typeof(CatalogTools), typeof(TaskTools), typeof(AnalyticsTools)];
 
     public static IReadOnlyList<McpServerTool> Create(IBackendApi api)
     {

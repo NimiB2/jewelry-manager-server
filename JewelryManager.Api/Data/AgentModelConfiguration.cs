@@ -73,6 +73,80 @@ public static class AgentModelConfiguration
             e.HasIndex(m => m.ReceivedAt);
         });
 
+        b.Entity<AgentUser>().Property(u => u.RestDays).HasMaxLength(20).HasDefaultValue("none");
+        b.Entity<AgentMessage>().Property(m => m.Source).HasMaxLength(20).HasDefaultValue("chat");
+
+        b.Entity<CoachItem>(e =>
+        {
+            e.HasIndex(i => new { i.BusinessId, i.Key }).IsUnique();
+            e.HasIndex(i => new { i.BusinessId, i.State });
+            e.Property(i => i.Key).HasMaxLength(160);
+            e.Property(i => i.Kind).HasMaxLength(30);
+            e.Property(i => i.Title).HasMaxLength(300);
+            e.Property(i => i.State).HasMaxLength(20);
+            e.HasOne<Business>().WithMany().HasForeignKey(i => i.BusinessId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<CoachFocus>(e =>
+        {
+            e.HasIndex(f => f.BusinessId).IsUnique();
+            e.Property(f => f.Area).HasMaxLength(30);
+            e.Property(f => f.Reason).HasMaxLength(300);
+            e.Property(f => f.FirstStep).HasMaxLength(300);
+            e.HasOne<Business>().WithMany().HasForeignKey(f => f.BusinessId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<CoachOccasion>(e =>
+        {
+            e.HasIndex(o => new { o.BusinessId, o.Code }).IsUnique();
+            e.Property(o => o.Code).HasMaxLength(30);
+            e.HasOne<Business>().WithMany().HasForeignKey(o => o.BusinessId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<RecurringObligation>(e =>
+        {
+            e.HasIndex(o => o.BusinessId);
+            e.Property(o => o.Title).HasMaxLength(200);
+            e.Property(o => o.LastCreatedMonth).HasMaxLength(7);
+            e.HasOne<Business>().WithMany().HasForeignKey(o => o.BusinessId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<MetalMapping>(e =>
+        {
+            e.HasIndex(m => new { m.BusinessId, m.MaterialName }).IsUnique();
+            e.Property(m => m.MaterialName).HasMaxLength(100);
+            e.Property(m => m.Metal).HasMaxLength(10);
+            e.Property(m => m.Purity).HasPrecision(6, 4);
+            e.Property(m => m.LastSettingsPrice).HasPrecision(18, 4);
+            e.Property(m => m.BaselineSpotIlsPerGram).HasPrecision(18, 4);
+            e.Property(m => m.ImpliedPremium).HasPrecision(10, 4);
+            e.HasOne<Business>().WithMany().HasForeignKey(m => m.BusinessId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<MetalPriceReading>(e =>
+        {
+            e.HasIndex(r => new { r.Metal, r.At });
+            e.Property(r => r.Metal).HasMaxLength(10);
+            e.Property(r => r.Source).HasMaxLength(60);
+            e.Property(r => r.Note).HasMaxLength(200);
+            e.Property(r => r.UsdPerOunce).HasPrecision(18, 4);
+            e.Property(r => r.UsdIls).HasPrecision(10, 4);
+            e.Property(r => r.IlsPerGram).HasPrecision(18, 4);
+        });
+
+        b.Entity<TaskChange>(e =>
+        {
+            e.HasIndex(c => new { c.BusinessId, c.TaskId, c.At });
+            e.Property(c => c.Field).HasMaxLength(30);
+            e.Property(c => c.OldValue).HasMaxLength(300);
+            e.Property(c => c.NewValue).HasMaxLength(300);
+            e.Property(c => c.Source).HasMaxLength(20);
+            e.HasOne<Business>().WithMany().HasForeignKey(c => c.BusinessId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // A small step belongs to its big task; deleting the big one frees the steps instead of deleting them.
+        b.Entity<TaskItem>().HasOne<TaskItem>().WithMany().HasForeignKey(t => t.ParentTaskId).OnDelete(DeleteBehavior.SetNull);
+
         b.Entity<AgentProactiveSent>(e =>
         {
             e.HasIndex(s => new { s.AgentUserId, s.Kind, s.Key }).IsUnique();
